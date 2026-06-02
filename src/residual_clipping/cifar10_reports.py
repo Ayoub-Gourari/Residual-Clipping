@@ -23,6 +23,20 @@ def load_metrics_frame(run_dir: Path) -> pd.DataFrame:
     return frame
 
 
+def discover_run_summaries(runs_root: Path) -> pd.DataFrame:
+    rows = []
+    for summary_file in sorted(runs_root.glob("*/summary.json")):
+        if summary_file.parent.name == "cifar10_sweeps":
+            continue
+        payload = json.loads(summary_file.read_text(encoding="utf-8"))
+        if "run_name" not in payload:
+            payload["run_name"] = summary_file.parent.name
+        rows.append(payload)
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
 def _parse_diagnostics(value: object) -> dict[str, float]:
     if isinstance(value, dict):
         return value
@@ -46,6 +60,35 @@ def expand_run_diagnostics(run_summaries: pd.DataFrame) -> pd.DataFrame:
             record["clip_threshold"] = record.get("clip_c_res")
         records.append(record)
     return pd.DataFrame(records)
+
+
+def combine_run_summaries(*frames: pd.DataFrame) -> pd.DataFrame:
+    non_empty = [frame for frame in frames if frame is not None and not frame.empty]
+    if not non_empty:
+        return pd.DataFrame()
+    combined = pd.concat(non_empty, ignore_index=True, sort=False)
+    if "run_name" in combined.columns:
+        combined = combined.drop_duplicates(subset=["run_name"], keep="last")
+    return combined.reset_index(drop=True)
+
+
+def build_threshold_summary(run_summaries: pd.DataFrame) -> pd.DataFrame:
+    if run_summaries.empty:
+        return pd.DataFrame()
+    results = run_summaries.copy()
+    for column in ["clip_c", "clip_c_res", "best_validation_accuracy"]:
+        if column in results.columns:
+            results[column] = pd.to_numeric(results[column], errors="coerce")
+    results["clip_threshold"] = results.get("clip_c", pd.Series(dtype=float)).fillna(
+        results.get("clip_c_res", pd.Series(dtype=float))
+    )
+    group_cols = ["model", "optimizer_mode", "clip_threshold"]
+    summary = results.groupby(group_cols, dropna=False).agg(
+        best_accuracy=("best_validation_accuracy", "max"),
+        mean_best_accuracy=("best_validation_accuracy", "mean"),
+        run_count=("run_name", "count"),
+    ).reset_index()
+    return summary.sort_values(["model", "optimizer_mode", "clip_threshold"]).reset_index(drop=True)
 
 
 def collect_best_runs(run_summaries: pd.DataFrame) -> pd.DataFrame:

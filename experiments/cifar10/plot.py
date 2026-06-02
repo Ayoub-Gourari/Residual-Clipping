@@ -15,6 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Plot centralized CIFAR-10 sweep outputs.")
     parser.add_argument("--sweep-dir", type=Path, default=Path("outputs") / "cifar10_sweeps")
     parser.add_argument("--runs-root", type=Path, default=Path("outputs"))
+    parser.add_argument("--report-dir", type=Path, default=None)
     parser.add_argument("--figure-dir", type=Path, default=Path("figures"))
     parser.add_argument(
         "--trajectory-metric",
@@ -29,11 +30,12 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     args.figure_dir.mkdir(parents=True, exist_ok=True)
+    summary_dir = args.report_dir if args.report_dir is not None else args.sweep_dir
 
-    summary = pd.read_csv(args.sweep_dir / "threshold_summary.csv")
+    summary = pd.read_csv(summary_dir / "threshold_summary.csv")
     plot_best_accuracy_vs_threshold(summary, args.figure_dir / "cifar10_best_accuracy_vs_threshold")
 
-    run_summaries = pd.read_csv(args.sweep_dir / "run_summaries.csv")
+    run_summaries = pd.read_csv(summary_dir / "run_summaries.csv")
     best_runs = collect_best_runs(run_summaries)
     records = collect_best_trajectory_records(best_runs, args.runs_root)
     aggregated = summarize_best_trajectories(records)

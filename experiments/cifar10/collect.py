@@ -8,8 +8,11 @@ from pathlib import Path
 import pandas as pd
 
 from residual_clipping.cifar10_reports import (
+    build_threshold_summary,
     collect_best_runs,
     collect_best_trajectory_records,
+    combine_run_summaries,
+    discover_run_summaries,
     expand_run_diagnostics,
     summarize_wandb_context,
     summarize_best_trajectories,
@@ -30,8 +33,26 @@ def main() -> None:
     args = parser.parse_args()
     args.report_dir.mkdir(parents=True, exist_ok=True)
 
-    run_summaries = pd.read_csv(args.sweep_dir / "run_summaries.csv")
-    threshold_summary = pd.read_csv(args.sweep_dir / "threshold_summary.csv")
+    sweep_run_summaries_path = args.sweep_dir / "run_summaries.csv"
+    sweep_threshold_summary_path = args.sweep_dir / "threshold_summary.csv"
+    sweep_run_summaries = (
+        pd.read_csv(sweep_run_summaries_path)
+        if sweep_run_summaries_path.exists()
+        else pd.DataFrame()
+    )
+    discovered_run_summaries = discover_run_summaries(args.runs_root)
+    run_summaries = combine_run_summaries(sweep_run_summaries, discovered_run_summaries)
+    if run_summaries.empty:
+        raise FileNotFoundError(
+            f"No run summaries found in {sweep_run_summaries_path} or under {args.runs_root}/*/summary.json."
+        )
+    threshold_summary = (
+        pd.read_csv(sweep_threshold_summary_path)
+        if sweep_threshold_summary_path.exists()
+        else build_threshold_summary(run_summaries)
+    )
+    if discovered_run_summaries is not None and not discovered_run_summaries.empty:
+        threshold_summary = build_threshold_summary(run_summaries)
     run_diagnostics = expand_run_diagnostics(run_summaries)
     best_runs = collect_best_runs(run_summaries)
     best_trajectory_records = collect_best_trajectory_records(best_runs, args.runs_root)

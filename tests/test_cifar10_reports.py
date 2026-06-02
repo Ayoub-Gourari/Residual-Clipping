@@ -13,8 +13,11 @@ from residual_clipping.cifar10_pipeline import (
     write_summary,
 )
 from residual_clipping.cifar10_reports import (
+    build_threshold_summary,
     collect_best_runs,
     collect_best_trajectory_records,
+    combine_run_summaries,
+    discover_run_summaries,
     expand_run_diagnostics,
     load_metrics_frame,
     summarize_wandb_context,
@@ -127,6 +130,65 @@ def test_metrics_loading_and_trajectory_summary():
         step_one = summary[summary["train/global_step"] == 1].iloc[0]
         assert float(step_zero["validation_accuracy_mean"]) == 40.0
         assert float(step_one["train_accuracy_mean"]) == 55.0
+
+
+def test_discover_and_combine_run_summaries_for_multi_machine_outputs():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        run_a = root / "resnet20-sgd"
+        run_b = root / "resnet20-standard"
+        run_a.mkdir()
+        run_b.mkdir()
+        (run_a / "summary.json").write_text(
+            json.dumps(
+                {
+                    "run_name": "resnet20-sgd",
+                    "model": "resnet20",
+                    "optimizer_mode": "sgd_momentum",
+                    "best_validation_accuracy": 80.0,
+                    "clip_c": None,
+                    "clip_c_res": None,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (run_b / "summary.json").write_text(
+            json.dumps(
+                {
+                    "run_name": "resnet20-standard",
+                    "model": "resnet20",
+                    "optimizer_mode": "clipped_momentum",
+                    "best_validation_accuracy": 82.0,
+                    "clip_c": 0.3,
+                    "clip_c_res": None,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        discovered = discover_run_summaries(root)
+        assert sorted(discovered["run_name"].tolist()) == ["resnet20-sgd", "resnet20-standard"]
+
+        existing = pd.DataFrame(
+            [
+                {
+                    "run_name": "resnet20-sgd",
+                    "model": "resnet20",
+                    "optimizer_mode": "sgd_momentum",
+                    "best_validation_accuracy": 79.0,
+                }
+            ]
+        )
+        combined = combine_run_summaries(existing, discovered)
+        assert len(combined) == 2
+        assert float(combined[combined["run_name"] == "resnet20-sgd"].iloc[0]["best_validation_accuracy"]) == 80.0
+
+        threshold_summary = build_threshold_summary(combined)
+        clipped = threshold_summary[threshold_summary["optimizer_mode"] == "clipped_momentum"].iloc[0]
+        assert float(clipped["clip_threshold"]) == 0.3
+        assert float(clipped["best_accuracy"]) == 82.0
 
 
 def test_summary_indicates_complete_checks_epoch_and_flag():
