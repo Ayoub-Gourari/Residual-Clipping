@@ -31,12 +31,14 @@ All long-running commands should converge on the same launch-time interface:
 
 The codebase intentionally keeps W&B identity and grouping details out of tracked defaults. Those settings should come from CLI flags or the shell environment.
 
-## Planned Commands
+## Commands
 
-The concrete experiment implementations will plug into these commands:
+The repository currently exposes the quadratics pipeline and the CIFAR-10 entrypoint scaffold through these commands:
 
 ```bash
 python -m experiments.quadratics.run --wandb-mode disabled
+python -m experiments.quadratics.search --wandb-mode disabled --resume
+python -m experiments.quadratics.plot
 python -m experiments.cifar10.run --model resnet20 --optimizer-mode sgd_momentum --wandb-mode disabled
 ```
 

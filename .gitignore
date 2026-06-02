@@ -7,6 +7,10 @@ wandb/
 outputs/
 logs/
 checkpoints/
+.cache/
+.matplotlib-cache/
+outputs_smoke/
+figures_smoke/
 *.pt
 *.pth
 *.ckpt
