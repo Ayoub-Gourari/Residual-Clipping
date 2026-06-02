@@ -500,6 +500,7 @@ def run_cifar10_experiment(args) -> dict[str, Any]:
     best_accuracy = 0.0
     best_epoch = 0
     start_epoch = 1
+    initial_payload = None
 
     if args.resume and checkpoint_path(run_dir).exists():
         checkpoint = load_checkpoint(
@@ -515,7 +516,7 @@ def run_cifar10_experiment(args) -> dict[str, Any]:
         clip_stats = checkpoint.get("clip_stats", clip_stats)
         print(f"Resuming {run_name} from epoch {start_epoch}", flush=True)
     else:
-        payload = {
+        initial_payload = {
             "train/global_step": 0,
             "validation/global_step": 0,
             "validation/epoch": 0,
@@ -524,7 +525,7 @@ def run_cifar10_experiment(args) -> dict[str, Any]:
         initial_eval = evaluate(
             model, test_loader, loss_func, device, max_batches=args.max_test_batches
         )
-        payload.update(
+        initial_payload.update(
             {
                 "validation/loss": initial_eval["loss"],
                 "validation/accuracy": initial_eval["accuracy"],
@@ -532,17 +533,12 @@ def run_cifar10_experiment(args) -> dict[str, Any]:
                 "validation/length": initial_eval["length"],
             }
         )
-        append_jsonl(metrics_path(run_dir), payload)
+        append_jsonl(metrics_path(run_dir), initial_payload)
+        best_accuracy = initial_eval["accuracy"]
 
     run = maybe_init_wandb(args, run_name)
-    if run is not None and start_epoch == 1:
-        log_wandb(
-            {
-                "validation/global_step": 0,
-                "validation/epoch": 0,
-                **evaluate(model, test_loader, loss_func, device, max_batches=args.max_test_batches),
-            }
-        )
+    if run is not None and start_epoch == 1 and initial_payload is not None:
+        log_wandb(initial_payload)
 
     milestones = parse_milestones(args.lr_milestones)
     for epoch in range(start_epoch, args.epochs + 1):
