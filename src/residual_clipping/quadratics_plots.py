@@ -129,31 +129,60 @@ def rerun_best_curves(
     return best_rows, curves, aggregate_curves(curves)
 
 
-def plot_best_trajectories(best_rows: pd.DataFrame, mean_curves: pd.DataFrame, destination: Path) -> None:
+def _curve_band_from_seed_curves(seed_curves: pd.DataFrame, config_id: str, floor: float) -> pd.DataFrame:
+    group = seed_curves[seed_curves["config_id"] == config_id]
+    if group.empty:
+        return pd.DataFrame()
+    clipped = group.copy()
+    clipped["objective"] = np.clip(clipped["objective"].to_numpy(dtype=float), floor, None)
+    clipped["log_objective"] = np.log10(clipped["objective"])
+    band = clipped.groupby("step", dropna=False)["log_objective"].agg(
+        log_median="median",
+        log_q25=lambda values: float(np.quantile(values, 0.25)),
+        log_q75=lambda values: float(np.quantile(values, 0.75)),
+        run_count="count",
+    ).reset_index()
+    for column in ["log_median", "log_q25", "log_q75"]:
+        band[column.replace("log_", "")] = np.power(10.0, band[column].to_numpy(dtype=float))
+    return band.sort_values("step").reset_index(drop=True)
+
+
+def plot_best_trajectories(best_rows: pd.DataFrame, seed_curves: pd.DataFrame, destination: Path) -> None:
+    floor = 1e-16
     fig, ax = plt.subplots(figsize=(9.5, 5.6))
+    observed_values = []
     for method_family in METHOD_ORDER:
         row = best_rows[best_rows["method_family"] == method_family]
         if row.empty:
             continue
         row = row.iloc[0]
-        group = mean_curves[mean_curves["config_id"] == row["config_id"]].sort_values("step")
-        if group.empty:
+        band = _curve_band_from_seed_curves(seed_curves, str(row["config_id"]), floor=floor)
+        if band.empty:
             continue
-        mean = np.clip(group["objective_mean"].to_numpy(dtype=float), 1e-300, None)
-        std = np.nan_to_num(group["objective_std"].to_numpy(dtype=float), nan=0.0)
-        low = np.clip(mean - std, 1e-300, None)
-        high = np.clip(mean + std, 1e-300, None)
+        step = band["step"].to_numpy(dtype=float)
+        median = band["median"].to_numpy(dtype=float)
+        low = band["q25"].to_numpy(dtype=float)
+        high = band["q75"].to_numpy(dtype=float)
+        observed_values.extend(median.tolist())
+        observed_values.extend(low.tolist())
+        observed_values.extend(high.tolist())
         label = row["method_family"]
         if pd.notna(row["clip_value"]):
             label = f"{label} (C={float(row['clip_value']):g}, lr={float(row['lr']):g}, beta={float(row['beta']):g})"
         else:
             label = f"{label} (lr={float(row['lr']):g}, beta={float(row['beta']):g})"
-        ax.plot(group["step"], mean, linewidth=2.1, label=label, color=METHOD_COLORS[method_family])
-        ax.fill_between(group["step"], low, high, color=METHOD_COLORS[method_family], alpha=0.16)
+        ax.plot(step, median, linewidth=2.1, label=label, color=METHOD_COLORS[method_family])
+        if np.any(np.abs(np.log10(high) - np.log10(low)) > 1e-12):
+            ax.fill_between(step, low, high, color=METHOD_COLORS[method_family], alpha=0.14)
     ax.set_xlabel("step")
     ax.set_ylabel("objective")
     ax.set_title("Best Tuned Loss Trajectories")
     ax.set_yscale("log")
+    finite_observed = np.asarray([value for value in observed_values if np.isfinite(value) and value > 0])
+    if finite_observed.size:
+        upper = float(np.nanmax(finite_observed))
+        lower = max(floor, min(float(np.nanmin(finite_observed)) * 0.5, upper / 100.0))
+        ax.set_ylim(lower, upper * 2.0)
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=8)
     save_figure(fig, destination)
@@ -250,4 +279,3 @@ def plot_threshold_heatmaps(summary: pd.DataFrame, destination: Path) -> None:
     colorbar = fig.colorbar(images[0], ax=axes, shrink=0.88)
     colorbar.set_label("log10(best final objective)")
     save_figure(fig, destination)
-

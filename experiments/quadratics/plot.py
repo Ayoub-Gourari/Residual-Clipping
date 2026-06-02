@@ -93,7 +93,7 @@ def main() -> None:
     mean_curves.to_csv(args.search_output_dir / "best_by_method_curves_mean_metrics.csv", index=False)
     best_rows.to_csv(args.search_output_dir / "best_by_method_configs.csv", index=False)
 
-    plot_best_trajectories(best_rows, mean_curves, args.figure_dir / "best_by_method_curves")
+    plot_best_trajectories(best_rows, curves, args.figure_dir / "best_by_method_curves")
     threshold_table = plot_best_final_loss_vs_threshold(
         summary, args.figure_dir / "threshold_best_final_error_comparison"
     )
