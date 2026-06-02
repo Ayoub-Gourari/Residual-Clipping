@@ -102,9 +102,12 @@ def collect_best_runs(run_summaries: pd.DataFrame) -> pd.DataFrame:
 
 def collect_best_trajectory_records(best_runs: pd.DataFrame, runs_root: Path) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
+    missing = []
     for _, row in best_runs.iterrows():
-        metrics = load_metrics_frame(runs_root / row["run_name"])
+        run_dir = runs_root / row["run_name"]
+        metrics = load_metrics_frame(run_dir)
         if metrics.empty:
+            missing.append(str(run_dir))
             continue
         metrics = metrics.copy()
         metrics["run_name"] = row["run_name"]
@@ -113,8 +116,14 @@ def collect_best_trajectory_records(best_runs: pd.DataFrame, runs_root: Path) ->
         metrics["best_validation_accuracy"] = row["best_validation_accuracy"]
         frames.append(metrics)
     if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+        message = "No trajectory metrics found for selected best runs."
+        if missing:
+            message += " Missing run directories or metrics files:\n" + "\n".join(f"- {path}" for path in missing)
+        raise FileNotFoundError(message)
+    result = pd.concat(frames, ignore_index=True)
+    if missing:
+        result.attrs["missing_trajectory_runs"] = missing
+    return result
 
 
 def summarize_best_trajectories(trajectory_records: pd.DataFrame) -> pd.DataFrame:

@@ -66,6 +66,8 @@ def plot_best_accuracy_vs_threshold(summary: pd.DataFrame, path: Path, metric: s
 
 
 def plot_best_trajectories(summary: pd.DataFrame, path: Path, metric: str = "train_accuracy_mean", title: str = "Best Trajectories") -> None:
+    if summary.empty:
+        raise ValueError("Cannot plot best trajectories because the aggregated trajectory dataframe is empty.")
     fig, ax = plt.subplots(figsize=(9.2, 5.4))
     std_metric = metric.replace("_mean", "_std") if metric.endswith("_mean") else None
     for method, group in summary.groupby("optimizer_mode", dropna=False):
