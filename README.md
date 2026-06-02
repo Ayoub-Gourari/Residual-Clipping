@@ -42,8 +42,10 @@ python -m experiments.quadratics.plot
 python -m experiments.cifar10.run --model resnet20 --optimizer-mode sgd_momentum --wandb-mode disabled
 python -m experiments.cifar10.sweep --models resnet20,resnet18,vgg16 --wandb-mode disabled --resume
 python -m experiments.cifar10.plot
+python -m experiments.cifar10.collect
 python scripts/three_machine_cifar10_commands.py --wandb-group my-group
 python scripts/run_cifar10_config.py --config configs/cifar10/resnet20_sweep.yaml -- --resume
+python scripts/plot_cifar10_config.py --config configs/cifar10/report_resnet20.yaml
 ```
 
 ## Development

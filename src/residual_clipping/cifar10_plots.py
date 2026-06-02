@@ -54,28 +54,6 @@ def plot_best_accuracy_vs_threshold(summary: pd.DataFrame, path: Path, metric: s
     save_figure(fig, path)
 
 
-def aggregate_trajectories(metrics_frames: list[pd.DataFrame]) -> pd.DataFrame:
-    all_records = []
-    for frame in metrics_frames:
-        if frame.empty:
-            continue
-        run_name = frame.attrs.get("run_name")
-        optimizer_mode = frame.attrs.get("optimizer_mode")
-        model = frame.attrs.get("model")
-        for _, row in frame.iterrows():
-            record = {"run_name": run_name, "optimizer_mode": optimizer_mode, "model": model, **row.to_dict()}
-            all_records.append(record)
-    combined = pd.DataFrame(all_records)
-    if combined.empty:
-        return combined
-    grouped = combined.groupby(["optimizer_mode", "model", "train/global_step"], dropna=False)
-    summary = grouped.agg(
-        train_loss_mean=("train/loss", "mean"),
-        train_accuracy_mean=("train/accuracy", "mean"),
-    ).reset_index()
-    return summary
-
-
 def plot_best_trajectories(summary: pd.DataFrame, path: Path, metric: str = "train_accuracy_mean", title: str = "Best Trajectories") -> None:
     fig, ax = plt.subplots(figsize=(9.2, 5.4))
     for method, group in summary.groupby("optimizer_mode", dropna=False):
@@ -89,6 +67,10 @@ def plot_best_trajectories(summary: pd.DataFrame, path: Path, metric: str = "tra
         )
     ax.set_xlabel("global step")
     ax.set_ylabel(metric.replace("_", " "))
+    if "loss" in metric:
+        ax.set_ylim(bottom=0)
+    elif "accuracy" in metric:
+        ax.set_ylim(0, 100)
     ax.set_title(title)
     ax.grid(True, alpha=0.25)
     ax.legend()

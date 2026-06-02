@@ -1,0 +1,6 @@
+sweep_dir: outputs/cifar10/cifar10_sweeps
+runs_root: outputs/cifar10
+report_dir: reports/cifar10/all_models
+figure_dir: figures/cifar10/all_models
+trajectory_metric: validation_accuracy_mean
+trajectory_title: Best Validation Accuracy Trajectories
