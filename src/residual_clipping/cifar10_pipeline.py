@@ -331,7 +331,10 @@ def load_checkpoint(
     optimizer: MomentumClipper,
     tracker: RunningDiagnostics,
 ):
-    payload = torch.load(path, map_location="cpu")
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:
+        payload = torch.load(path, map_location="cpu")
     model.load_state_dict(payload["model_state_dict"])
     optimizer.load_state_dict(payload["optimizer_state_dict"])
     tracker.values = payload.get("tracker_values", {})
