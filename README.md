@@ -9,7 +9,7 @@ This repository is organized around two experiment families:
 - Synthetic quadratics for lightweight optimization and threshold-sensitivity studies.
 - Centralized CIFAR-10 image-classification runs with `resnet20`, `resnet18`, and `vgg16`.
 
-The current repository foundation focuses on shared structure, common utilities, and reproducible CLI conventions. The experiment implementations will be added on top of this base.
+The current codebase includes a resumable synthetic quadratics pipeline and a centralized CIFAR-10 pipeline with common utilities, reproducible CLI conventions, and plotting entrypoints.
 
 ## Project Layout
 
@@ -33,13 +33,16 @@ The codebase intentionally keeps W&B identity and grouping details out of tracke
 
 ## Commands
 
-The repository currently exposes the quadratics pipeline and the CIFAR-10 entrypoint scaffold through these commands:
+The repository currently exposes the quadratics and centralized CIFAR-10 pipelines through these commands:
 
 ```bash
 python -m experiments.quadratics.run --wandb-mode disabled
 python -m experiments.quadratics.search --wandb-mode disabled --resume
 python -m experiments.quadratics.plot
 python -m experiments.cifar10.run --model resnet20 --optimizer-mode sgd_momentum --wandb-mode disabled
+python -m experiments.cifar10.sweep --models resnet20,resnet18,vgg16 --wandb-mode disabled --resume
+python -m experiments.cifar10.plot
+python scripts/three_machine_cifar10_commands.py --wandb-group my-group
 ```
 
 ## Development

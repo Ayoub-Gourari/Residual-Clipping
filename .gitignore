@@ -11,6 +11,9 @@ checkpoints/
 .matplotlib-cache/
 outputs_smoke/
 figures_smoke/
+outputs_smoke_cifar/
+figures_smoke_cifar/
+outputs_smoke_resume_cifar/
 *.pt
 *.pth
 *.ckpt
