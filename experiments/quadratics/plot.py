@@ -13,6 +13,7 @@ from residual_clipping.quadratics_plots import (
     plot_best_final_loss_vs_threshold,
     plot_best_trajectories,
     plot_metric_curves,
+    plot_seed_metric_curves_for_method,
     plot_threshold_heatmaps,
     rerun_best_curves,
 )
@@ -45,14 +46,27 @@ def main() -> None:
 
     args.figure_dir.mkdir(parents=True, exist_ok=True)
 
-    quadratic_mean = pd.read_csv(args.output_dir / "quadratic_mean_metrics.csv")
+    quadratic_seed = pd.read_csv(args.output_dir / "quadratic_seed_metrics.csv")
     fixed_mu_mean = pd.read_csv(args.output_dir / "fixed_mu_mean_metrics.csv")
-    plot_metric_curves(
-        quadratic_mean,
+    for suffix in [".png", ".pdf"]:
+        legacy_path = args.figure_dir / f"quadratic_objective{suffix}"
+        if legacy_path.exists():
+            legacy_path.unlink()
+    plot_seed_metric_curves_for_method(
+        quadratic_seed,
+        method_family="standard",
         metric="objective",
-        ylabel="mean objective",
-        title="Quadratic Objective",
-        destination=args.figure_dir / "quadratic_objective",
+        ylabel="objective",
+        title="Standard Clipping Objective",
+        destination=args.figure_dir / "quadratic_objective_standard",
+    )
+    plot_seed_metric_curves_for_method(
+        quadratic_seed,
+        method_family="residual",
+        metric="objective",
+        ylabel="objective",
+        title="Residual Clipping Objective",
+        destination=args.figure_dir / "quadratic_objective_residual",
     )
     plot_metric_curves(
         fixed_mu_mean,

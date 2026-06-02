@@ -27,6 +27,10 @@ METHOD_COLORS = {
     "standard": "#4C78A8",
     "residual": "#F58518",
 }
+METHOD_CMAPS = {
+    "standard": "Blues",
+    "residual": "Oranges",
+}
 
 
 def save_figure(fig: plt.Figure, destination: Path) -> None:
@@ -62,6 +66,80 @@ def plot_metric_curves(
     ax.set_yscale("log")
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=8, ncol=2)
+    save_figure(fig, destination)
+
+
+def _seed_metric_band(group: pd.DataFrame, metric: str, floor: float) -> pd.DataFrame:
+    values = group[["step", metric]].copy()
+    values[metric] = np.clip(values[metric].to_numpy(dtype=float), floor, None)
+    values[f"log_{metric}"] = np.log10(values[metric])
+    band = values.groupby("step", dropna=False)[f"log_{metric}"].agg(
+        log_median="median",
+        log_q25=lambda items: float(np.quantile(items, 0.25)),
+        log_q75=lambda items: float(np.quantile(items, 0.75)),
+        run_count="count",
+    ).reset_index()
+    for source, target in [
+        ("log_median", "median"),
+        ("log_q25", "q25"),
+        ("log_q75", "q75"),
+    ]:
+        band[target] = np.power(10.0, band[source].to_numpy(dtype=float))
+    return band.sort_values("step").reset_index(drop=True)
+
+
+def plot_seed_metric_curves_for_method(
+    dataframe: pd.DataFrame,
+    *,
+    method_family: str,
+    metric: str,
+    ylabel: str,
+    title: str,
+    destination: Path,
+    floor: float = 1e-16,
+) -> None:
+    method_df = dataframe[dataframe["method_family"] == method_family].copy()
+    if method_df.empty:
+        return
+    curves = [
+        (clip_value, group)
+        for clip_value, group in method_df.groupby("clip_value", dropna=False)
+        if pd.notna(clip_value)
+    ]
+    curves.sort(key=lambda item: float(item[0]))
+    colors = plt.get_cmap(METHOD_CMAPS.get(method_family, "viridis"))(
+        np.linspace(0.45, 0.9, max(len(curves), 1))
+    )
+
+    fig, ax = plt.subplots(figsize=(9.5, 5.6))
+    observed_values = []
+    for color, (clip_value, group) in zip(colors, curves):
+        band = _seed_metric_band(group, metric, floor)
+        if band.empty:
+            continue
+        step = band["step"].to_numpy(dtype=float)
+        median = band["median"].to_numpy(dtype=float)
+        low = band["q25"].to_numpy(dtype=float)
+        high = band["q75"].to_numpy(dtype=float)
+        observed_values.extend(median.tolist())
+        observed_values.extend(low.tolist())
+        observed_values.extend(high.tolist())
+        label = f"C={float(clip_value):g}"
+        ax.plot(step, median, linewidth=1.9, label=label, color=color)
+        if np.any(np.abs(np.log10(high) - np.log10(low)) > 1e-12):
+            ax.fill_between(step, low, high, color=color, alpha=0.13)
+
+    ax.set_xlabel("step")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_yscale("log")
+    finite_observed = np.asarray([value for value in observed_values if np.isfinite(value) and value > 0])
+    if finite_observed.size:
+        upper = float(np.nanmax(finite_observed))
+        lower = max(floor, min(float(np.nanmin(finite_observed)) * 0.5, upper / 100.0))
+        ax.set_ylim(lower, upper * 2.0)
+    ax.grid(True, alpha=0.25)
+    ax.legend(title="threshold", fontsize=8, ncol=2)
     save_figure(fig, destination)
 
 

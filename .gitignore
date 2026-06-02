@@ -21,6 +21,7 @@ reports_smoke_cifar_wandb/
 figures_smoke_cifar_final/
 reports_smoke_cifar_final/
 figures_smoke_quadratics_plot_fix/
+figures_smoke_quadratics_objective_split/
 *.pt
 *.pth
 *.ckpt
