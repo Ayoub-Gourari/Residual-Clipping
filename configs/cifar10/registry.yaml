@@ -1,0 +1,31 @@
+experiments:
+  - name: cifar10-resnet20-sweep
+    kind: sweep
+    family: cifar10
+    config: configs/cifar10/resnet20_sweep.yaml
+    description: ResNet-20 centralized CIFAR-10 threshold sweep.
+  - name: cifar10-resnet18-sweep
+    kind: sweep
+    family: cifar10
+    config: configs/cifar10/resnet18_sweep.yaml
+    description: ResNet-18 centralized CIFAR-10 threshold sweep.
+  - name: cifar10-vgg16-sweep
+    kind: sweep
+    family: cifar10
+    config: configs/cifar10/vgg16_sweep.yaml
+    description: VGG-16 centralized CIFAR-10 threshold sweep.
+  - name: cifar10-all-models-sweep
+    kind: sweep
+    family: cifar10
+    config: configs/cifar10/all_models_sweep.yaml
+    description: Combined centralized CIFAR-10 threshold sweep across all tracked models.
+  - name: cifar10-resnet20-report
+    kind: report
+    family: cifar10
+    config: configs/cifar10/report_resnet20.yaml
+    description: Collect and plot centralized CIFAR-10 reports for the ResNet-20 sweep outputs.
+  - name: cifar10-all-models-report
+    kind: report
+    family: cifar10
+    config: configs/cifar10/report_all_models.yaml
+    description: Collect and plot centralized CIFAR-10 reports across all tracked models.

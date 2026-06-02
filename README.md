@@ -46,6 +46,8 @@ python -m experiments.cifar10.collect
 python scripts/three_machine_cifar10_commands.py --wandb-group my-group
 python scripts/run_cifar10_config.py --config configs/cifar10/resnet20_sweep.yaml -- --resume
 python scripts/plot_cifar10_config.py --config configs/cifar10/report_resnet20.yaml
+python scripts/list_experiments.py
+python scripts/run_registered_experiment.py --name cifar10-resnet20-sweep -- --resume
 ```
 
 ## Development
