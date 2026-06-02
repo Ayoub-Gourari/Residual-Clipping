@@ -11,6 +11,13 @@ This repository is organized around two experiment families:
 
 The current codebase includes a resumable synthetic quadratics pipeline and a centralized CIFAR-10 pipeline with common utilities, reproducible CLI conventions, and plotting entrypoints.
 
+## Reproducibility Principles
+
+- Runs are config-driven and support resume/skip behavior for interrupted work.
+- W&B identity, grouping, and notes are always supplied at launch time rather than embedded in tracked code.
+- Heavy outputs, checkpoints, and local planning notes stay out of git.
+- The tracked config and registry files define the intended reproducible surface.
+
 ## Project Layout
 
 ```text
@@ -20,6 +27,22 @@ scripts/                 Thin operational wrappers
 configs/                 Reproducible config files
 tests/                   Unit tests
 docs/                    Notes and generated documentation
+```
+
+## What To Run First
+
+For a first pass through the repository:
+
+1. Run a small quadratics smoke command to confirm the local environment is healthy.
+2. Run a named CIFAR-10 sweep from the registry with local overrides.
+3. Regenerate the corresponding CIFAR-10 report artifacts and figures.
+
+The registry-driven path is the easiest place to start because it keeps the tracked config names visible:
+
+```bash
+python scripts/list_experiments.py
+python scripts/run_registered_experiment.py --name cifar10-resnet20-sweep -- --resume
+python scripts/run_registered_experiment.py --name cifar10-resnet20-report
 ```
 
 ## CLI Conventions
@@ -33,24 +56,94 @@ The codebase intentionally keeps W&B identity and grouping details out of tracke
 
 When W&B logging is enabled and `--wandb-group` is omitted, the CIFAR-10 sweep path derives a neutral default group from the dataset, model scope, beta, and seed range. Multi-machine runs should still pass an explicit shared `--wandb-group` so all methods land in the same comparison bucket.
 
-## Commands
+## Main Workflows
 
-The repository currently exposes the quadratics and centralized CIFAR-10 pipelines through these commands:
+### Quadratics
 
 ```bash
 python -m experiments.quadratics.run --wandb-mode disabled
 python -m experiments.quadratics.search --wandb-mode disabled --resume
 python -m experiments.quadratics.plot
+```
+
+### CIFAR-10: Single Run
+
+```bash
 python -m experiments.cifar10.run --model resnet20 --optimizer-mode sgd_momentum --wandb-mode disabled
-python -m experiments.cifar10.sweep --models resnet20,resnet18,vgg16 --wandb-mode disabled --resume
-python -m experiments.cifar10.plot
-python -m experiments.cifar10.collect
-python scripts/three_machine_cifar10_commands.py --wandb-group my-group
+```
+
+### CIFAR-10: Sweep From Tracked Config
+
+```bash
 python scripts/run_cifar10_config.py --config configs/cifar10/resnet20_sweep.yaml -- --resume
-python scripts/plot_cifar10_config.py --config configs/cifar10/report_resnet20.yaml
+```
+
+### CIFAR-10: Sweep By Registry Name
+
+```bash
 python scripts/list_experiments.py
 python scripts/run_registered_experiment.py --name cifar10-resnet20-sweep -- --resume
 ```
+
+### CIFAR-10: Report Collection And Plotting
+
+```bash
+python -m experiments.cifar10.collect
+python -m experiments.cifar10.plot
+python scripts/plot_cifar10_config.py --config configs/cifar10/report_resnet20.yaml
+```
+
+### CIFAR-10: Three-Machine Grouped Workflow
+
+Use the helper to print one launch command per method. All three machines should share the same explicit `--wandb-group`.
+
+```bash
+python scripts/three_machine_cifar10_commands.py --wandb-group my-group
+```
+
+The generated commands route through the registry-backed sweep launcher and pin each machine to one method.
+
+## Expected CIFAR-10 Artifacts
+
+Sweep runs write per-run directories containing:
+
+- `metrics.jsonl`
+- `summary.json`
+- `checkpoint_latest.pt`
+
+Sweep-level summaries live under the sweep output root in:
+
+- `cifar10_sweeps/run_summaries.csv`
+- `cifar10_sweeps/threshold_summary.csv`
+
+Report collection writes compact analysis artifacts such as:
+
+- `run_diagnostics.csv`
+- `best_runs.csv`
+- `best_trajectory_records.csv`
+- `best_trajectory_summary.csv`
+- `wandb_context.json`
+
+Figure generation writes:
+
+- `cifar10_best_accuracy_vs_threshold.(png|pdf)`
+- `cifar10_best_trajectories.(png|pdf)`
+
+## Registry And Configs
+
+Tracked CIFAR-10 sweep and report entries live in [configs/cifar10/registry.yaml](configs/cifar10/registry.yaml).
+
+Tracked model sweep configs:
+
+- [configs/cifar10/resnet20_sweep.yaml](configs/cifar10/resnet20_sweep.yaml)
+- [configs/cifar10/resnet18_sweep.yaml](configs/cifar10/resnet18_sweep.yaml)
+- [configs/cifar10/vgg16_sweep.yaml](configs/cifar10/vgg16_sweep.yaml)
+- [configs/cifar10/all_models_sweep.yaml](configs/cifar10/all_models_sweep.yaml)
+
+Tracked report configs:
+
+- [configs/cifar10/report_resnet20.yaml](configs/cifar10/report_resnet20.yaml)
+- [configs/cifar10/report_all_models.yaml](configs/cifar10/report_all_models.yaml)
 
 ## Development
 
@@ -58,3 +151,5 @@ python scripts/run_registered_experiment.py --name cifar10-resnet20-sweep -- --r
 python -m compileall src experiments scripts
 pytest
 ```
+
+See [docs/cifar10_workflow.md](docs/cifar10_workflow.md) for a concise CIFAR-10 sweep and reporting walkthrough.
