@@ -18,6 +18,8 @@ figures_smoke_cifar_config/
 reports_smoke_cifar/
 figures_smoke_cifar_wandb/
 reports_smoke_cifar_wandb/
+figures_smoke_cifar_final/
+reports_smoke_cifar_final/
 *.pt
 *.pth
 *.ckpt

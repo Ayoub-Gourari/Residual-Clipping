@@ -19,9 +19,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trajectory-metric",
         choices=("train_accuracy_mean", "train_loss_mean", "validation_accuracy_mean", "validation_loss_mean"),
-        default="train_accuracy_mean",
+        default="validation_accuracy_mean",
     )
-    parser.add_argument("--trajectory-title", type=str, default="Best Training Accuracy Trajectories")
+    parser.add_argument("--trajectory-title", type=str, default="Best Validation Accuracy Trajectories")
     return parser
 
 

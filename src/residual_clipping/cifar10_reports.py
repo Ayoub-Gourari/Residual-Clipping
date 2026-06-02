@@ -80,9 +80,14 @@ def summarize_best_trajectories(trajectory_records: pd.DataFrame) -> pd.DataFram
     group_cols = ["model", "optimizer_mode", "train/global_step"]
     aggregated = trajectory_records.groupby(group_cols, dropna=False).agg(
         train_loss_mean=("train/loss", "mean"),
+        train_loss_std=("train/loss", "std"),
         train_accuracy_mean=("train/accuracy", "mean"),
+        train_accuracy_std=("train/accuracy", "std"),
         validation_loss_mean=("validation/loss", "mean"),
+        validation_loss_std=("validation/loss", "std"),
         validation_accuracy_mean=("validation/accuracy", "mean"),
+        validation_accuracy_std=("validation/accuracy", "std"),
+        run_count=("run_name", "nunique"),
     ).reset_index()
     return aggregated.sort_values(group_cols).reset_index(drop=True)
 
