@@ -17,6 +17,14 @@ def add_wandb_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--wandb-entity", type=str, default=None, help="W&B entity name.")
     parser.add_argument("--wandb-group", type=str, default=None, help="W&B group name.")
     parser.add_argument("--wandb-run-name", type=str, default=None, help="W&B run name.")
+    parser.add_argument("--wandb-job-type", type=str, default=None, help="W&B job type label.")
+    parser.add_argument(
+        "--wandb-tags",
+        type=str,
+        default=None,
+        help="Comma-separated W&B tags.",
+    )
+    parser.add_argument("--wandb-notes", type=str, default=None, help="Optional W&B notes.")
     return parser
 
 

@@ -1,15 +1,23 @@
 import json
 import tempfile
+from argparse import Namespace
 from pathlib import Path
 
 import pandas as pd
 
-from residual_clipping.cifar10_pipeline import summary_indicates_complete, write_summary
+from residual_clipping.cifar10_pipeline import (
+    default_wandb_group,
+    parse_wandb_tags,
+    resolved_wandb_group,
+    summary_indicates_complete,
+    write_summary,
+)
 from residual_clipping.cifar10_reports import (
     collect_best_runs,
     collect_best_trajectory_records,
     expand_run_diagnostics,
     load_metrics_frame,
+    summarize_wandb_context,
     summarize_best_trajectories,
 )
 
@@ -130,3 +138,32 @@ def test_summary_indicates_complete_checks_epoch_and_flag():
 
         write_summary(run_dir, {"epochs": 12, "completed": 0})
         assert summary_indicates_complete(run_dir, epochs=10) is False
+
+
+def test_wandb_group_helpers_and_context_summary():
+    args = Namespace(
+        dataset="cifar10",
+        models=["resnet20", "resnet18"],
+        beta=0.9,
+        seed_start=1,
+        num_seeds=2,
+        wandb_mode="online",
+        wandb_group=None,
+    )
+    assert default_wandb_group(args) == "cifar10-multi-model-b0p9-seeds1-2"
+    assert resolved_wandb_group(args) == "cifar10-multi-model-b0p9-seeds1-2"
+    assert parse_wandb_tags("baseline, clip ,residual") == ["baseline", "clip", "residual"]
+
+    summaries = pd.DataFrame(
+        [
+            {"wandb_group": "group-a", "wandb_project": "proj", "wandb_entity": "team", "wandb_job_type": "sweep"},
+            {"wandb_group": "group-a", "wandb_project": "proj", "wandb_entity": "team", "wandb_job_type": "sweep"},
+            {"wandb_group": "group-b", "wandb_project": "proj2", "wandb_entity": None, "wandb_job_type": None},
+        ]
+    )
+    context = summarize_wandb_context(summaries)
+    assert context["run_count"] == 3
+    assert context["wandb_groups"] == ["group-a", "group-b"]
+    assert context["wandb_projects"] == ["proj", "proj2"]
+    assert context["wandb_entities"] == ["team"]
+    assert context["wandb_job_types"] == ["sweep"]

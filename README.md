@@ -26,10 +26,12 @@ docs/                    Notes and generated documentation
 
 All long-running commands should converge on the same launch-time interface:
 
-- W&B: `--wandb-mode`, `--wandb-project`, `--wandb-entity`, `--wandb-group`, `--wandb-run-name`
+- W&B: `--wandb-mode`, `--wandb-project`, `--wandb-entity`, `--wandb-group`, `--wandb-run-name`, `--wandb-job-type`, `--wandb-tags`, `--wandb-notes`
 - Resume: `--resume`, `--overwrite`, `--run-id`, `--output-dir`
 
 The codebase intentionally keeps W&B identity and grouping details out of tracked defaults. Those settings should come from CLI flags or the shell environment.
+
+When W&B logging is enabled and `--wandb-group` is omitted, the CIFAR-10 sweep path derives a neutral default group from the dataset, model scope, beta, and seed range. Multi-machine runs should still pass an explicit shared `--wandb-group` so all methods land in the same comparison bucket.
 
 ## Commands
 

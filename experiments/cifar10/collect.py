@@ -11,8 +11,10 @@ from residual_clipping.cifar10_reports import (
     collect_best_runs,
     collect_best_trajectory_records,
     expand_run_diagnostics,
+    summarize_wandb_context,
     summarize_best_trajectories,
 )
+from residual_clipping.logging_utils import atomic_write_json
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +36,7 @@ def main() -> None:
     best_runs = collect_best_runs(run_summaries)
     best_trajectory_records = collect_best_trajectory_records(best_runs, args.runs_root)
     best_trajectory_summary = summarize_best_trajectories(best_trajectory_records)
+    wandb_context = summarize_wandb_context(run_summaries)
 
     threshold_summary.to_csv(args.report_dir / "threshold_summary.csv", index=False)
     run_summaries.to_csv(args.report_dir / "run_summaries.csv", index=False)
@@ -41,6 +44,7 @@ def main() -> None:
     best_runs.to_csv(args.report_dir / "best_runs.csv", index=False)
     best_trajectory_records.to_csv(args.report_dir / "best_trajectory_records.csv", index=False)
     best_trajectory_summary.to_csv(args.report_dir / "best_trajectory_summary.csv", index=False)
+    atomic_write_json(args.report_dir / "wandb_context.json", wandb_context)
 
 
 if __name__ == "__main__":

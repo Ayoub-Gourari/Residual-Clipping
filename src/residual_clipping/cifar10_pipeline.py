@@ -29,6 +29,13 @@ def top1_accuracy(logits: torch.Tensor, target: torch.Tensor) -> float:
     return 100.0 * predictions.eq(target).float().mean().item()
 
 
+def parse_wandb_tags(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    tags = [item.strip() for item in value.split(",") if item.strip()]
+    return tags or None
+
+
 def parse_milestones(value: str | None) -> list[int]:
     if value is None or value.strip() == "":
         return []
@@ -213,9 +220,12 @@ def maybe_init_wandb(args, run_name: str):
         mode=args.wandb_mode,
         project=args.wandb_project,
         entity=args.wandb_entity,
-        group=args.wandb_group,
+        group=resolved_wandb_group(args),
         name=args.wandb_run_name or run_name,
         id=args.run_id,
+        job_type=args.wandb_job_type,
+        tags=parse_wandb_tags(args.wandb_tags),
+        notes=args.wandb_notes,
         resume="allow" if args.resume else None,
         config={**vars(args), "num_training_workers": 1},
     )
@@ -262,6 +272,28 @@ def resolved_run_name(args) -> str:
         ]
     )
     return args.wandb_run_name or "-".join(parts)
+
+
+def default_wandb_group(args) -> str:
+    model_part = getattr(args, "model", None)
+    if model_part is None and hasattr(args, "models"):
+        models = list(getattr(args, "models"))
+        model_part = "multi-model" if len(models) > 1 else models[0]
+    dataset = getattr(args, "dataset", "dataset")
+    beta = getattr(args, "beta", None)
+    seed_start = getattr(args, "seed_start", getattr(args, "seed", 0))
+    num_seeds = getattr(args, "num_seeds", 1)
+    parts = [str(dataset), str(model_part or "model")]
+    if beta is not None:
+        parts.append(f"b{str(beta).replace('.', 'p')}")
+    parts.append(f"seeds{seed_start}-{seed_start + num_seeds - 1}")
+    return "-".join(parts)
+
+
+def resolved_wandb_group(args) -> str | None:
+    if getattr(args, "wandb_mode", "disabled") == "disabled":
+        return None
+    return args.wandb_group or default_wandb_group(args)
 
 
 def save_checkpoint(
@@ -578,6 +610,10 @@ def run_cifar10_experiment(args) -> dict[str, Any]:
         "clip_c": args.clip_c,
         "clip_c_res": args.clip_c_res,
         "weight_decay": args.weight_decay,
+        "wandb_group": resolved_wandb_group(args),
+        "wandb_project": args.wandb_project,
+        "wandb_entity": args.wandb_entity,
+        "wandb_job_type": args.wandb_job_type,
         "completed": 1,
         "diagnostics": tracker.summarize(),
     }

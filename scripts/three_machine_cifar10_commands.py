@@ -9,6 +9,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Print three-machine CIFAR-10 commands.")
     parser.add_argument("--model", default="resnet20")
     parser.add_argument("--wandb-group", required=True)
+    parser.add_argument("--sweep-name", default="cifar10-resnet20-sweep")
+    parser.add_argument("--registry", default="configs/cifar10/registry.yaml")
     parser.add_argument("--common-args", default="--wandb-mode online")
     return parser
 
@@ -23,10 +25,13 @@ def main() -> None:
     ]
     for machine, mode in commands:
         print(
-            f"{machine}: python3 -m experiments.cifar10.sweep "
+            f"{machine}: python3 scripts/run_registered_experiment.py "
+            f"--registry {args.registry} "
+            f"--name {args.sweep_name} -- "
             f"--models {args.model} "
             f"--optimizer-mode {mode} "
             f"--wandb-group {args.wandb_group} "
+            f"--wandb-job-type sweep "
             f"{args.common_args}"
         )
 

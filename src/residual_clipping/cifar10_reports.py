@@ -85,3 +85,21 @@ def summarize_best_trajectories(trajectory_records: pd.DataFrame) -> pd.DataFram
         validation_accuracy_mean=("validation/accuracy", "mean"),
     ).reset_index()
     return aggregated.sort_values(group_cols).reset_index(drop=True)
+
+
+def summarize_wandb_context(run_summaries: pd.DataFrame) -> dict[str, object]:
+    if run_summaries.empty:
+        return {"run_count": 0, "wandb_groups": [], "wandb_projects": [], "wandb_entities": []}
+    def unique_non_null(column: str) -> list[str]:
+        if column not in run_summaries.columns:
+            return []
+        values = [str(value) for value in run_summaries[column].dropna().unique().tolist() if str(value).strip()]
+        return sorted(values)
+
+    return {
+        "run_count": int(len(run_summaries)),
+        "wandb_groups": unique_non_null("wandb_group"),
+        "wandb_projects": unique_non_null("wandb_project"),
+        "wandb_entities": unique_non_null("wandb_entity"),
+        "wandb_job_types": unique_non_null("wandb_job_type"),
+    }
