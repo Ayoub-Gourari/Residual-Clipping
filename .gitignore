@@ -11,3 +11,4 @@ checkpoints/
 *.pth
 *.ckpt
 .DS_Store
+TODO.local.md
