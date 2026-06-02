@@ -35,10 +35,14 @@ def main() -> None:
     summary = pd.read_csv(summary_dir / "threshold_summary.csv")
     plot_best_accuracy_vs_threshold(summary, args.figure_dir / "cifar10_best_accuracy_vs_threshold")
 
-    run_summaries = pd.read_csv(summary_dir / "run_summaries.csv")
-    best_runs = collect_best_runs(run_summaries)
-    records = collect_best_trajectory_records(best_runs, args.runs_root)
-    aggregated = summarize_best_trajectories(records)
+    precomputed_trajectory_summary = summary_dir / "best_trajectory_summary.csv"
+    if precomputed_trajectory_summary.exists():
+        aggregated = pd.read_csv(precomputed_trajectory_summary)
+    else:
+        run_summaries = pd.read_csv(summary_dir / "run_summaries.csv")
+        best_runs = collect_best_runs(run_summaries)
+        records = collect_best_trajectory_records(best_runs, args.runs_root)
+        aggregated = summarize_best_trajectories(records)
     plot_best_trajectories(
         aggregated,
         args.figure_dir / "cifar10_best_trajectories",

@@ -70,10 +70,16 @@ def plot_best_trajectories(summary: pd.DataFrame, path: Path, metric: str = "tra
         raise ValueError("Cannot plot best trajectories because the aggregated trajectory dataframe is empty.")
     fig, ax = plt.subplots(figsize=(9.2, 5.4))
     std_metric = metric.replace("_mean", "_std") if metric.endswith("_mean") else None
+    plotted_any = False
     for method, group in summary.groupby("optimizer_mode", dropna=False):
         group = group.sort_values("train/global_step")
         x_values = group["train/global_step"].to_numpy(dtype=float)
         y_values = group[metric].to_numpy(dtype=float)
+        finite_mask = np.isfinite(x_values) & np.isfinite(y_values)
+        x_values = x_values[finite_mask]
+        y_values = y_values[finite_mask]
+        if x_values.size == 0:
+            continue
         ax.plot(
             x_values,
             y_values,
@@ -81,8 +87,9 @@ def plot_best_trajectories(summary: pd.DataFrame, path: Path, metric: str = "tra
             color=METHOD_COLORS[method],
             label=method,
         )
+        plotted_any = True
         if std_metric is not None and std_metric in group.columns:
-            std_values = np.nan_to_num(group[std_metric].to_numpy(dtype=float), nan=0.0)
+            std_values = np.nan_to_num(group[std_metric].to_numpy(dtype=float), nan=0.0)[finite_mask]
             if np.any(std_values > 0):
                 ax.fill_between(
                     x_values,
@@ -99,5 +106,10 @@ def plot_best_trajectories(summary: pd.DataFrame, path: Path, metric: str = "tra
         ax.set_ylim(0, 100)
     ax.set_title(title)
     ax.grid(True, alpha=0.25)
+    if not plotted_any:
+        raise ValueError(
+            f"Could not plot any trajectory lines for metric '{metric}'. "
+            "The aggregated dataframe contains no finite values for that metric."
+        )
     ax.legend()
     save_figure(fig, path)
