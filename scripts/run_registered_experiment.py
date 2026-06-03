@@ -42,8 +42,10 @@ def main() -> None:
         command = ["python3", "scripts/run_cifar10_config.py", "--config", entry.config]
     elif entry.kind == "sweep" and entry.family == "wikitext2":
         command = ["python3", "scripts/run_wikitext2_config.py", "--config", entry.config]
-    elif entry.kind == "report":
+    elif entry.kind == "report" and entry.family.startswith("cifar"):
         command = ["python3", "scripts/plot_cifar10_config.py", "--config", entry.config]
+    elif entry.kind == "report" and entry.family == "wikitext2":
+        command = ["python3", "scripts/plot_wikitext2_config.py", "--config", entry.config]
     else:
         raise ValueError(f"Unsupported registry entry kind/family: {entry.kind}/{entry.family}")
 

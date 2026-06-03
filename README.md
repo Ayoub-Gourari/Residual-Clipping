@@ -112,6 +112,12 @@ python scripts/run_registered_experiment.py --name cifar100-vgg16-report
 python scripts/run_registered_experiment.py --name wikitext2-lstm-sweep -- --resume --download
 ```
 
+### WikiText-2: 2-Layer LSTM Report Collection And Plotting
+
+```bash
+python scripts/run_registered_experiment.py --name wikitext2-lstm-report
+```
+
 ### CIFAR-10: Three-Machine Grouped Workflow
 
 Use the helper to print one launch command per method. All three machines should share the same explicit `--wandb-group`.
@@ -148,6 +154,8 @@ Figure generation writes:
 
 - `cifar10_best_accuracy_vs_threshold.(png|pdf)` or `cifar100_best_accuracy_vs_threshold.(png|pdf)`
 - `cifar10_best_trajectories.(png|pdf)` or `cifar100_best_trajectories.(png|pdf)`
+- `wikitext2_lstm_best_perplexity_vs_threshold.(png|pdf)`
+- `wikitext2_lstm_best_trajectories.(png|pdf)`
 
 ## Registry And Configs
 
@@ -167,6 +175,7 @@ Tracked report configs:
 - [configs/cifar10/report_resnet20.yaml](configs/cifar10/report_resnet20.yaml)
 - [configs/cifar10/report_all_models.yaml](configs/cifar10/report_all_models.yaml)
 - [configs/cifar100/report_vgg16.yaml](configs/cifar100/report_vgg16.yaml)
+- [configs/wikitext2/report_lstm.yaml](configs/wikitext2/report_lstm.yaml)
 
 ## Development
 

@@ -1,0 +1,7 @@
+sweep_dir: outputs/wikitext2/wikitext2_sweeps
+runs_root: outputs/wikitext2
+report_dir: reports/wikitext2/lstm
+figure_dir: figures/wikitext2/lstm
+figure_prefix: wikitext2_lstm
+trajectory_metric: validation_perplexity_mean
+trajectory_title: WikiText-2 LSTM Best Validation Perplexity Trajectories

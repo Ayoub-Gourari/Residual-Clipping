@@ -44,3 +44,8 @@ experiments:
     family: wikitext2
     config: configs/wikitext2/lstm_sweep.yaml
     description: 2-layer LSTM word-level WikiText-2 language-modeling sweep.
+  - name: wikitext2-lstm-report
+    kind: report
+    family: wikitext2
+    config: configs/wikitext2/report_lstm.yaml
+    description: Collect and plot centralized WikiText-2 LSTM sweep outputs.
