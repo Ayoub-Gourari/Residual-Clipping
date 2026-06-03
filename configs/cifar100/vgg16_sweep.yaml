@@ -7,6 +7,7 @@ test_batch_size: 256
 loader_workers: 4
 lrs:
   - 0.05
+  - 0.01
   - 0.1
 beta: 0.9
 weight_decay: 0.0005
