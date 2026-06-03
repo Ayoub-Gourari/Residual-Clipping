@@ -264,7 +264,7 @@ def maybe_init_wandb(args, run_name: str):
         entity=args.wandb_entity,
         group=resolved_wandb_group(args),
         name=args.wandb_run_name or run_name,
-        id=args.run_id,
+        id=args.run_id or (run_name if args.resume else None),
         job_type=args.wandb_job_type,
         tags=parse_wandb_tags(args.wandb_tags),
         notes=args.wandb_notes,
