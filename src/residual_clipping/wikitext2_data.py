@@ -6,6 +6,7 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
 
 import torch
 
@@ -46,6 +47,25 @@ def wikitext2_root(data_dir: str | Path) -> Path:
     return Path(data_dir) / WIKITEXT2_DIR
 
 
+def _download_file(url: str, destination: Path) -> None:
+    try:
+        urllib.request.urlretrieve(url, destination)
+        return
+    except Exception as urllib_error:
+        errors = [f"urllib: {urllib_error}"]
+
+    for command in (
+        ["curl", "-L", "--fail", "--retry", "3", "-o", str(destination), url],
+        ["wget", "--max-redirect=20", "-O", str(destination), url],
+    ):
+        try:
+            subprocess.run(command, check=True)
+            return
+        except (FileNotFoundError, subprocess.CalledProcessError) as error:
+            errors.append(f"{command[0]}: {error}")
+    raise RuntimeError(f"Could not download WikiText-2 from {url}. Attempts failed: {'; '.join(errors)}")
+
+
 def maybe_download_wikitext2(data_dir: str | Path, *, download: bool) -> Path:
     root = wikitext2_root(data_dir)
     train_file = root / "wiki.train.tokens"
@@ -60,7 +80,7 @@ def maybe_download_wikitext2(data_dir: str | Path, *, download: bool) -> Path:
     data_path = Path(data_dir)
     data_path.mkdir(parents=True, exist_ok=True)
     archive_path = data_path / WIKITEXT2_ARCHIVE
-    urllib.request.urlretrieve(WIKITEXT2_URL, archive_path)
+    _download_file(WIKITEXT2_URL, archive_path)
     with zipfile.ZipFile(archive_path) as archive:
         archive.extractall(data_path)
     if not train_file.exists():
