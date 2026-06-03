@@ -8,6 +8,7 @@ This repository is organized around two experiment families:
 
 - Synthetic quadratics for lightweight optimization and threshold-sensitivity studies.
 - Centralized CIFAR image-classification runs, including CIFAR-10 with `resnet20`, `resnet18`, and `vgg16`, plus CIFAR-100 with `vgg16`.
+- WikiText-2 word-level language modeling with a tied-weight 2-layer LSTM.
 
 The current codebase includes a resumable synthetic quadratics pipeline and a centralized CIFAR pipeline with common utilities, reproducible CLI conventions, and plotting entrypoints.
 
@@ -105,6 +106,12 @@ python scripts/plot_cifar10_config.py --config configs/cifar10/report_resnet20.y
 python scripts/run_registered_experiment.py --name cifar100-vgg16-report
 ```
 
+### WikiText-2: 2-Layer LSTM Sweep
+
+```bash
+python scripts/run_registered_experiment.py --name wikitext2-lstm-sweep -- --resume --download
+```
+
 ### CIFAR-10: Three-Machine Grouped Workflow
 
 Use the helper to print one launch command per method. All three machines should share the same explicit `--wandb-group`.
@@ -153,6 +160,7 @@ Tracked model sweep configs:
 - [configs/cifar10/vgg16_sweep.yaml](configs/cifar10/vgg16_sweep.yaml)
 - [configs/cifar10/all_models_sweep.yaml](configs/cifar10/all_models_sweep.yaml)
 - [configs/cifar100/vgg16_sweep.yaml](configs/cifar100/vgg16_sweep.yaml)
+- [configs/wikitext2/lstm_sweep.yaml](configs/wikitext2/lstm_sweep.yaml)
 
 Tracked report configs:
 

@@ -50,6 +50,7 @@ def test_list_experiments_cli_smoke():
     )
     assert "cifar10-resnet20-sweep" in result.stdout
     assert "cifar100-vgg16-sweep" in result.stdout
+    assert "wikitext2-lstm-sweep" in result.stdout
 
 
 def test_registered_report_cli_smoke():

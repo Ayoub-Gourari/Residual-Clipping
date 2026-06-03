@@ -39,3 +39,8 @@ experiments:
     family: cifar100
     config: configs/cifar100/report_vgg16.yaml
     description: Collect and plot centralized CIFAR-100 reports for the VGG-16 sweep outputs.
+  - name: wikitext2-lstm-sweep
+    kind: sweep
+    family: wikitext2
+    config: configs/wikitext2/lstm_sweep.yaml
+    description: 2-layer LSTM word-level WikiText-2 language-modeling sweep.
