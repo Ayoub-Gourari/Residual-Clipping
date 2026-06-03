@@ -46,12 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def validate_args(args) -> None:
+def validate_args(args, *, sweep: bool = False) -> None:
     if not 0 <= args.beta < 1:
         raise ValueError(f"--beta must be in [0,1). Got {args.beta}.")
-    if args.optimizer_mode == "clipped_momentum" and args.clip_c is None:
+    if not sweep and args.optimizer_mode == "clipped_momentum" and args.clip_c is None:
         raise ValueError("--clip-c is required for clipped_momentum.")
-    if args.optimizer_mode == "residual_clipped_momentum" and args.clip_c_res is None:
+    if not sweep and args.optimizer_mode == "residual_clipped_momentum" and args.clip_c_res is None:
         raise ValueError("--clip-c-res is required for residual_clipped_momentum.")
     if args.tie_weights and args.embedding_size != args.hidden_size:
         raise ValueError("--tie-weights requires --embedding-size to equal --hidden-size.")

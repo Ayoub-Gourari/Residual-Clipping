@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    validate_args(args)
+    validate_args(args, sweep=True)
     results = run_sweep(args)
     sweep_dir = sweep_output_dir(args.output_dir, args.dataset)
     sweep_dir.mkdir(parents=True, exist_ok=True)
