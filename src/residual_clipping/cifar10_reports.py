@@ -26,7 +26,7 @@ def load_metrics_frame(run_dir: Path) -> pd.DataFrame:
 def discover_run_summaries(runs_root: Path) -> pd.DataFrame:
     rows = []
     for summary_file in sorted(runs_root.glob("*/summary.json")):
-        if summary_file.parent.name == "cifar10_sweeps":
+        if summary_file.parent.name.endswith("_sweeps"):
             continue
         payload = json.loads(summary_file.read_text(encoding="utf-8"))
         if "run_name" not in payload:

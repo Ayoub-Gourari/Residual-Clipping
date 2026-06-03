@@ -1,4 +1,4 @@
-"""Dataset and loader helpers for centralized CIFAR-10 experiments."""
+"""Dataset and loader helpers for centralized CIFAR experiments."""
 
 from __future__ import annotations
 
@@ -8,28 +8,60 @@ import torch
 from torchvision import datasets, transforms
 
 
-CIFAR10_STATS = {
-    "mean": (0.4914, 0.4822, 0.4465),
-    "std": (0.2023, 0.1994, 0.2010),
+CIFAR_STATS = {
+    "cifar10": {
+        "mean": (0.4914, 0.4822, 0.4465),
+        "std": (0.2023, 0.1994, 0.2010),
+    },
+    "cifar100": {
+        "mean": (0.5071, 0.4867, 0.4408),
+        "std": (0.2675, 0.2565, 0.2761),
+    },
 }
 
+DATASET_NUM_CLASSES = {
+    "cifar10": 10,
+    "fake_cifar10": 10,
+    "cifar100": 100,
+    "fake_cifar100": 100,
+}
+DATASET_NAMES = tuple(DATASET_NUM_CLASSES)
 
-def cifar10_transforms(train: bool) -> transforms.Compose:
+
+def dataset_family(dataset_name: str) -> str:
+    if dataset_name.startswith("fake_"):
+        return dataset_name.removeprefix("fake_")
+    return dataset_name
+
+
+def dataset_num_classes(dataset_name: str) -> int:
+    try:
+        return DATASET_NUM_CLASSES[dataset_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported dataset: {dataset_name}") from exc
+
+
+def cifar_transforms(dataset_name: str, train: bool) -> transforms.Compose:
+    stats = CIFAR_STATS[dataset_family(dataset_name)]
     if train:
         return transforms.Compose(
             [
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomCrop(32, padding=4),
                 transforms.ToTensor(),
-                transforms.Normalize(CIFAR10_STATS["mean"], CIFAR10_STATS["std"]),
+                transforms.Normalize(stats["mean"], stats["std"]),
             ]
         )
     return transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(CIFAR10_STATS["mean"], CIFAR10_STATS["std"]),
+            transforms.Normalize(stats["mean"], stats["std"]),
         ]
     )
+
+
+def cifar10_transforms(train: bool) -> transforms.Compose:
+    return cifar_transforms("cifar10", train)
 
 
 def make_dataset(
@@ -45,15 +77,22 @@ def make_dataset(
             root=str(data_dir),
             train=train,
             download=download,
-            transform=cifar10_transforms(train),
+            transform=cifar_transforms(dataset_name, train),
         )
-    if dataset_name == "fake_cifar10":
+    if dataset_name == "cifar100":
+        return datasets.CIFAR100(
+            root=str(data_dir),
+            train=train,
+            download=download,
+            transform=cifar_transforms(dataset_name, train),
+        )
+    if dataset_name in ("fake_cifar10", "fake_cifar100"):
         size = fake_size if fake_size > 0 else (512 if train else 128)
         return datasets.FakeData(
             size=size,
             image_size=(3, 32, 32),
-            num_classes=10,
-            transform=cifar10_transforms(train),
+            num_classes=dataset_num_classes(dataset_name),
+            transform=cifar_transforms(dataset_name, train),
         )
     raise ValueError(f"Unsupported dataset: {dataset_name}")
 

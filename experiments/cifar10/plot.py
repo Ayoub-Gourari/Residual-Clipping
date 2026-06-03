@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runs-root", type=Path, default=Path("outputs"))
     parser.add_argument("--report-dir", type=Path, default=None)
     parser.add_argument("--figure-dir", type=Path, default=Path("figures"))
+    parser.add_argument("--figure-prefix", type=str, default="cifar10")
     parser.add_argument(
         "--trajectory-metric",
         choices=("train_accuracy_mean", "train_loss_mean", "validation_accuracy_mean", "validation_loss_mean"),
@@ -33,7 +34,7 @@ def main() -> None:
     summary_dir = args.report_dir if args.report_dir is not None else args.sweep_dir
 
     summary = pd.read_csv(summary_dir / "threshold_summary.csv")
-    plot_best_accuracy_vs_threshold(summary, args.figure_dir / "cifar10_best_accuracy_vs_threshold")
+    plot_best_accuracy_vs_threshold(summary, args.figure_dir / f"{args.figure_prefix}_best_accuracy_vs_threshold")
 
     precomputed_trajectory_summary = summary_dir / "best_trajectory_summary.csv"
     if precomputed_trajectory_summary.exists():
@@ -45,7 +46,7 @@ def main() -> None:
         aggregated = summarize_best_trajectories(records)
     plot_best_trajectories(
         aggregated,
-        args.figure_dir / "cifar10_best_trajectories",
+        args.figure_dir / f"{args.figure_prefix}_best_trajectories",
         metric=args.trajectory_metric,
         title=args.trajectory_title,
     )

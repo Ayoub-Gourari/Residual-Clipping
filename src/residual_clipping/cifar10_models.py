@@ -1,4 +1,4 @@
-"""Model factory for centralized CIFAR-10 experiments."""
+"""Model factory for centralized CIFAR experiments."""
 
 from __future__ import annotations
 
@@ -166,7 +166,7 @@ class ResNet18CIFAR10(nn.Module):
         return self.classifier(x)
 
 
-def make_vgg16_cifar10(num_classes: int = 10) -> nn.Module:
+def make_vgg16_cifar(num_classes: int = 10) -> nn.Module:
     model = vgg16(weights=None)
     model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
     model.classifier = nn.Sequential(
@@ -181,11 +181,15 @@ def make_vgg16_cifar10(num_classes: int = 10) -> nn.Module:
     return model
 
 
+def make_vgg16_cifar10(num_classes: int = 10) -> nn.Module:
+    return make_vgg16_cifar(num_classes=num_classes)
+
+
 def get_model(model_name: str, num_classes: int = 10) -> nn.Module:
     if model_name == "resnet20":
         return ResNetCIFAR(20, num_classes=num_classes)
     if model_name == "resnet18":
         return ResNet18CIFAR10(num_classes=num_classes)
     if model_name == "vgg16":
-        return make_vgg16_cifar10(num_classes=num_classes)
+        return make_vgg16_cifar(num_classes=num_classes)
     raise ValueError(f"Unsupported model: {model_name}")

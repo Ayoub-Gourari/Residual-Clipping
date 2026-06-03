@@ -1,4 +1,4 @@
-"""Training, checkpointing, and sweep helpers for centralized CIFAR-10 experiments."""
+"""Training, checkpointing, and sweep helpers for centralized CIFAR experiments."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import pandas as pd
 import torch
 from torch import nn
 
-from .cifar10_data import make_dataloaders
+from .cifar10_data import dataset_num_classes, make_dataloaders
 from .cifar10_models import get_model
 from .clipping import clip_tensor_list, tensor_list_global_norm
 from .logging_utils import append_jsonl, atomic_write_json
@@ -251,6 +251,10 @@ def summary_path(run_dir: Path) -> Path:
 
 def metrics_path(run_dir: Path) -> Path:
     return run_dir / "metrics.jsonl"
+
+
+def sweep_output_dir(output_dir: str | Path, dataset_name: str) -> Path:
+    return Path(output_dir) / f"{dataset_name}_sweeps"
 
 
 def resolved_run_name(args) -> str:
@@ -490,7 +494,7 @@ def run_cifar10_experiment(args) -> dict[str, Any]:
         fake_train_size=args.fake_train_size,
         fake_test_size=args.fake_test_size,
     )
-    model = get_model(args.model).to(device)
+    model = get_model(args.model, num_classes=dataset_num_classes(args.dataset)).to(device)
     loss_func = nn.CrossEntropyLoss().to(device)
     params = [param for param in model.parameters() if param.requires_grad]
     optimizer = MomentumClipper(params, args.optimizer_mode, args.beta, args.clip_c, args.clip_c_res)

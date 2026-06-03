@@ -1,4 +1,4 @@
-"""Run centralized CIFAR-10 clipping experiments."""
+"""Run centralized CIFAR clipping experiments."""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ import argparse
 from pathlib import Path
 
 from residual_clipping.cli import add_resume_args, add_wandb_args
+from residual_clipping.cifar10_data import DATASET_NAMES
 from residual_clipping.cifar10_pipeline import OPTIMIZER_MODES, run_cifar10_experiment
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run centralized CIFAR-10 clipping experiments.")
+    parser = argparse.ArgumentParser(description="Run centralized CIFAR clipping experiments.")
     add_wandb_args(parser)
     add_resume_args(parser)
     parser.add_argument(
@@ -25,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Optimization mode.",
     )
-    parser.add_argument("--dataset", choices=("cifar10", "fake_cifar10"), default="cifar10")
+    parser.add_argument("--dataset", choices=DATASET_NAMES, default="cifar10")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--use-cuda", action="store_true", default=False)
     parser.add_argument("--epochs", type=int, default=50)

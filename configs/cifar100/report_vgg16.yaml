@@ -1,0 +1,7 @@
+sweep_dir: outputs/cifar100/cifar100_sweeps
+runs_root: outputs/cifar100
+report_dir: reports/cifar100/vgg16
+figure_dir: figures/cifar100/vgg16
+figure_prefix: cifar100
+trajectory_metric: validation_accuracy_mean
+trajectory_title: CIFAR-100 VGG-16 Best Validation Accuracy Trajectories

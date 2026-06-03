@@ -14,6 +14,11 @@ experiments:
     family: cifar10
     config: configs/cifar10/vgg16_sweep.yaml
     description: VGG-16 centralized CIFAR-10 threshold sweep.
+  - name: cifar100-vgg16-sweep
+    kind: sweep
+    family: cifar100
+    config: configs/cifar100/vgg16_sweep.yaml
+    description: VGG-16 centralized CIFAR-100 threshold sweep.
   - name: cifar10-all-models-sweep
     kind: sweep
     family: cifar10
@@ -29,3 +34,8 @@ experiments:
     family: cifar10
     config: configs/cifar10/report_all_models.yaml
     description: Collect and plot centralized CIFAR-10 reports across all tracked models.
+  - name: cifar100-vgg16-report
+    kind: report
+    family: cifar100
+    config: configs/cifar100/report_vgg16.yaml
+    description: Collect and plot centralized CIFAR-100 reports for the VGG-16 sweep outputs.
