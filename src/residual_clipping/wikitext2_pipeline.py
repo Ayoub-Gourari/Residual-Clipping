@@ -187,16 +187,18 @@ def train_one_epoch(
         output, hidden = model(data, hidden)
         loss = loss_func(output, targets)
         loss.backward()
-        grads, data_grads = collect_gradients(params, args.weight_decay)
-        diagnostics = optimizer.step(grads, lr)
-        diagnostics["data_grad_norm"] = tensor_list_global_norm(data_grads).item()
+        should_log = batch_idx % args.log_interval == 0
+        grads, data_grads = collect_gradients(params, args.weight_decay, clone=False)
+        diagnostics = optimizer.step(grads, lr, collect_diagnostics=should_log)
+        if should_log:
+            diagnostics["data_grad_norm"] = tensor_list_global_norm(data_grads).item()
         tracker.update(diagnostics)
         if "clip_active" in diagnostics:
             clip_stats["total"] += 1
             clip_stats["active"] += diagnostics["clip_active"]
 
         global_step += 1
-        if batch_idx % args.log_interval == 0:
+        if should_log:
             payload = {
                 "train/global_step": global_step,
                 "train/epoch": epoch,

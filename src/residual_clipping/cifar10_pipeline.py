@@ -69,18 +69,26 @@ def clipping_error_norm(center: list[torch.Tensor], update: list[torch.Tensor], 
     return tensor_list_global_norm(error).item()
 
 
-def collect_gradients(params: list[torch.nn.Parameter], weight_decay: float) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+def collect_gradients(
+    params: list[torch.nn.Parameter],
+    weight_decay: float,
+    *,
+    clone: bool = True,
+) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
     data_grads = []
     update_grads = []
     for param in params:
         if param.grad is None:
             grad = torch.zeros_like(param)
         else:
-            grad = param.grad.detach().clone()
-        data_grads.append(grad.detach().clone())
+            grad = param.grad.detach()
+            if clone:
+                grad = grad.clone()
+        data_grads.append(grad.detach().clone() if clone else grad)
         if weight_decay != 0:
+            grad = grad.detach().clone()
             grad = grad.add(param.detach(), alpha=weight_decay)
-        update_grads.append(grad.detach().clone())
+        update_grads.append(grad.detach().clone() if clone else grad)
     return update_grads, data_grads
 
 
@@ -148,62 +156,96 @@ class MomentumClipper:
             "cos_grad_momentum": cosine,
         }
 
-    def step(self, grads: list[torch.Tensor], lr: float) -> dict[str, float]:
-        momentum_before = [value.detach().clone() for value in self.momentum]
-        grad_norm = tensor_list_global_norm(grads).item()
-        diagnostics = self._base_diagnostics(grads, momentum_before, grad_norm)
+    def _residual_norm(self, grads: list[torch.Tensor]) -> float:
+        if not grads:
+            return 0.0
+        total = torch.zeros((), device=grads[0].device, dtype=grads[0].dtype)
+        for grad, momentum in zip(grads, self.momentum):
+            residual = grad.detach() - momentum.detach()
+            total = total + residual.pow(2).sum()
+        return total.sqrt().item()
+
+    def step(
+        self,
+        grads: list[torch.Tensor],
+        lr: float,
+        *,
+        collect_diagnostics: bool = True,
+    ) -> dict[str, float]:
+        diagnostics: dict[str, float] = {}
+        grad_norm = None
+        residual_norm = None
+
+        if collect_diagnostics:
+            grad_norm = tensor_list_global_norm(grads).item()
+            diagnostics = self._base_diagnostics(grads, self.momentum, grad_norm)
 
         if self.mode == "sgd_momentum":
-            self.momentum = [
-                self.beta * momentum + (1.0 - self.beta) * grad
-                for momentum, grad in zip(momentum_before, grads)
-            ]
+            with torch.no_grad():
+                for param, momentum, grad in zip(self.params, self.momentum, grads):
+                    momentum.mul_(self.beta).add_(grad.detach(), alpha=1.0 - self.beta)
+                    param.add_(momentum, alpha=-lr)
         elif self.mode == "clipped_momentum":
-            clipped_grad, _, scale = clip_tensor_list(grads, self.clip_c)
+            if grad_norm is None:
+                grad_norm = tensor_list_global_norm(grads).item()
+            scale = min(1.0, float(self.clip_c) / (grad_norm + 1e-12))
+            clipped_grad_norm = grad_norm * scale
             diagnostics.update(
                 {
-                    "clip_input_norm": grad_norm,
-                    "clipped_object_norm": tensor_list_global_norm(clipped_grad).item(),
-                    "clip_threshold": float(self.clip_c),
                     "clip_active": float(grad_norm > float(self.clip_c)),
                     "clip_fraction": scale,
-                    "standard_clip_fraction": scale,
-                    "standard_clip_input_norm": grad_norm,
-                    "standard_clipped_grad_norm": tensor_list_global_norm(clipped_grad).item(),
                 }
             )
-            self.momentum = [
-                self.beta * momentum + (1.0 - self.beta) * grad
-                for momentum, grad in zip(momentum_before, clipped_grad)
-            ]
+            if collect_diagnostics:
+                diagnostics.update(
+                    {
+                        "clip_input_norm": grad_norm,
+                        "clipped_object_norm": clipped_grad_norm,
+                        "clip_threshold": float(self.clip_c),
+                        "standard_clip_fraction": scale,
+                        "standard_clip_input_norm": grad_norm,
+                        "standard_clipped_grad_norm": clipped_grad_norm,
+                    }
+                )
+            with torch.no_grad():
+                for param, momentum, grad in zip(self.params, self.momentum, grads):
+                    momentum.mul_(self.beta).add_(grad.detach(), alpha=(1.0 - self.beta) * scale)
+                    param.add_(momentum, alpha=-lr)
         elif self.mode == "residual_clipped_momentum":
-            residuals = tensor_list_sub(grads, momentum_before)
-            clipped_residuals, residual_norm, scale = clip_tensor_list(residuals, self.clip_c_res)
+            residual_norm = diagnostics.get("residual_norm") if collect_diagnostics else None
+            if residual_norm is None:
+                residual_norm = self._residual_norm(grads)
+            scale = min(1.0, float(self.clip_c_res) / (residual_norm + 1e-12))
+            clipped_residual_norm = residual_norm * scale
             diagnostics.update(
                 {
-                    "clip_input_norm": residual_norm,
-                    "clipped_object_norm": tensor_list_global_norm(clipped_residuals).item(),
-                    "clip_threshold": float(self.clip_c_res),
                     "clip_active": float(residual_norm > float(self.clip_c_res)),
                     "clip_fraction": scale,
                     "residual_clip_fraction": scale,
-                    "residual_clip_input_norm": residual_norm,
-                    "residual_clipped_residual_norm": tensor_list_global_norm(clipped_residuals).item(),
-                    "residual_clipping_error_norm": clipping_error_norm(momentum_before, clipped_residuals, grads),
-                    "cos_grad_center": diagnostics["cos_grad_momentum"],
                 }
             )
-            self.momentum = [
-                momentum + (1.0 - self.beta) * residual
-                for momentum, residual in zip(momentum_before, clipped_residuals)
-            ]
+            if collect_diagnostics:
+                diagnostics.update(
+                    {
+                        "clip_input_norm": residual_norm,
+                        "clipped_object_norm": clipped_residual_norm,
+                        "clip_threshold": float(self.clip_c_res),
+                        "residual_clip_input_norm": residual_norm,
+                        "residual_clipped_residual_norm": clipped_residual_norm,
+                        "residual_clipping_error_norm": abs(1.0 - scale) * residual_norm,
+                        "cos_grad_center": diagnostics["cos_grad_momentum"],
+                    }
+                )
+            alpha = (1.0 - self.beta) * scale
+            with torch.no_grad():
+                for param, momentum, grad in zip(self.params, self.momentum, grads):
+                    momentum.mul_(1.0 - alpha).add_(grad.detach(), alpha=alpha)
+                    param.add_(momentum, alpha=-lr)
         else:
             raise ValueError(f"Unknown optimizer_mode={self.mode}")
 
-        with torch.no_grad():
-            for param, momentum in zip(self.params, self.momentum):
-                param.add_(momentum, alpha=-lr)
-        diagnostics["next_momentum_norm"] = tensor_list_global_norm(self.momentum).item()
+        if collect_diagnostics:
+            diagnostics["next_momentum_norm"] = tensor_list_global_norm(self.momentum).item()
         return diagnostics
 
 
