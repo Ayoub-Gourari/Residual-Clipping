@@ -24,6 +24,18 @@ METHOD_COLORS = {
     "residual_clipped_momentum": "#F58518",
 }
 
+METHOD_LINESTYLES = {
+    "sgd_momentum": ":",
+    "clipped_momentum": "-",
+    "residual_clipped_momentum": "--",
+}
+
+METHOD_MARKERS = {
+    "sgd_momentum": "^",
+    "clipped_momentum": "o",
+    "residual_clipped_momentum": "s",
+}
+
 
 def save_figure(fig: plt.Figure, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,6 +91,8 @@ def plot_best_trajectories(
     path: Path,
     metric: str = "validation_perplexity_mean",
     title: str = "Best Validation Perplexity Trajectories",
+    include_initial_evaluation: bool = False,
+    logarithmic_y: bool = False,
 ) -> None:
     if summary.empty:
         raise ValueError("Cannot plot best trajectories because the aggregated trajectory dataframe is empty.")
@@ -92,19 +106,38 @@ def plot_best_trajectories(
         finite_mask = np.isfinite(x_values) & np.isfinite(y_values)
         x_values = x_values[finite_mask]
         y_values = y_values[finite_mask]
+        std_values = None
+        if std_metric is not None and std_metric in group.columns:
+            std_values = pd.to_numeric(group[std_metric], errors="coerce").to_numpy(dtype=float)[finite_mask]
+            std_values = np.nan_to_num(std_values, nan=0.0)
+        if not include_initial_evaluation and np.any(x_values > 0):
+            trained_mask = x_values > 0
+            x_values = x_values[trained_mask]
+            y_values = y_values[trained_mask]
+            if std_values is not None:
+                std_values = std_values[trained_mask]
+        if logarithmic_y:
+            positive_mask = y_values > 0
+            x_values = x_values[positive_mask]
+            y_values = y_values[positive_mask]
+            if std_values is not None:
+                std_values = std_values[positive_mask]
         if x_values.size == 0:
             continue
+        marker_interval = max(1, x_values.size // 10)
         ax.plot(
             x_values,
             y_values,
             linewidth=2.0,
             color=METHOD_COLORS[method],
+            linestyle=METHOD_LINESTYLES[method],
+            marker=METHOD_MARKERS[method],
+            markersize=4.0,
+            markevery=marker_interval,
             label=method,
         )
         plotted_any = True
-        if std_metric is not None and std_metric in group.columns:
-            std_values = pd.to_numeric(group[std_metric], errors="coerce").to_numpy(dtype=float)[finite_mask]
-            std_values = np.nan_to_num(std_values, nan=0.0)
+        if std_values is not None:
             if np.any(std_values > 0):
                 ax.fill_between(
                     x_values,
@@ -115,8 +148,9 @@ def plot_best_trajectories(
                 )
     ax.set_xlabel("global step")
     ax.set_ylabel(metric.replace("_", " "))
-    if "loss" in metric or "perplexity" in metric:
-        ax.set_ylim(bottom=0)
+    if logarithmic_y:
+        ax.set_yscale("log")
+    ax.margins(y=0.08)
     ax.set_title(title)
     ax.grid(True, alpha=0.25)
     if not plotted_any:

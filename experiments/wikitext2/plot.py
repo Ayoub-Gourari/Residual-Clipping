@@ -31,6 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="validation_perplexity_mean",
     )
     parser.add_argument("--trajectory-title", type=str, default="WikiText-2 LSTM Best Validation Perplexity Trajectories")
+    parser.add_argument(
+        "--include-initial-evaluation",
+        action="store_true",
+        help="Include the untrained global-step-zero validation point in the trajectory plot.",
+    )
+    parser.add_argument(
+        "--trajectory-log-y",
+        action="store_true",
+        help="Use a logarithmic y-axis for the trajectory plot.",
+    )
     return parser
 
 
@@ -59,6 +69,8 @@ def main() -> None:
         args.figure_dir / f"{args.figure_prefix}_best_trajectories",
         metric=args.trajectory_metric,
         title=args.trajectory_title,
+        include_initial_evaluation=args.include_initial_evaluation,
+        logarithmic_y=args.trajectory_log_y,
     )
 
 
