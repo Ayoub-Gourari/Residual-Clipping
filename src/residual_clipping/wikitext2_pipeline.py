@@ -57,20 +57,26 @@ def perplexity(loss: float) -> float:
 
 def resolved_run_name(args) -> str:
     if args.run_name is not None:
-        return args.run_name
-    parts = [args.model, args.optimizer_mode]
-    if args.clip_c is not None:
-        parts.append(f"C{str(args.clip_c).replace('.', 'p')}")
-    if args.clip_c_res is not None:
-        parts.append(f"Cres{str(args.clip_c_res).replace('.', 'p')}")
-    parts.extend(
-        [
-            f"lr{str(args.lr).replace('.', 'p')}",
-            f"b{str(args.beta).replace('.', 'p')}",
-            f"seed{args.seed}",
-        ]
-    )
-    return args.wandb_run_name or "-".join(parts)
+        run_name = args.run_name
+    else:
+        parts = [args.model, args.optimizer_mode]
+        if args.clip_c is not None:
+            parts.append(f"C{str(args.clip_c).replace('.', 'p')}")
+        if args.clip_c_res is not None:
+            parts.append(f"Cres{str(args.clip_c_res).replace('.', 'p')}")
+        parts.extend(
+            [
+                f"lr{str(args.lr).replace('.', 'p')}",
+                f"b{str(args.beta).replace('.', 'p')}",
+                f"seed{args.seed}",
+            ]
+        )
+        run_name = args.wandb_run_name or "-".join(parts)
+
+    experiment_tag = getattr(args, "experiment_tag", None)
+    if experiment_tag:
+        return f"{experiment_tag}-{run_name}"
+    return run_name
 
 
 def summary_indicates_complete(run_dir: Path, epochs: int) -> bool:
@@ -413,6 +419,7 @@ def run_wikitext2_experiment(args) -> dict[str, Any]:
         "batch_size": args.batch_size,
         "dropout": args.dropout,
         "tie_weights": args.tie_weights,
+        "experiment_tag": getattr(args, "experiment_tag", None),
         "wandb_group": resolved_wandb_group(args),
         "wandb_project": args.wandb_project,
         "wandb_entity": args.wandb_entity,

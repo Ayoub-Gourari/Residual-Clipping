@@ -1,12 +1,15 @@
 import json
 import subprocess
 import sys
+from argparse import Namespace
 from pathlib import Path
 
 import torch
 
+from residual_clipping.configs import load_yaml_config
 from residual_clipping.wikitext2_data import batchify, get_batch, load_corpus
 from residual_clipping.wikitext2_models import make_lstm_language_model
+from residual_clipping.wikitext2_pipeline import resolved_run_name
 
 
 def write_fake_wikitext_run(
@@ -88,6 +91,51 @@ def test_fake_wikitext2_corpus_batches_and_tied_lstm(tmp_path: Path):
 
     assert output.shape == torch.Size([targets.numel(), corpus.vocab_size])
     assert model.decoder.weight is model.encoder.weight
+
+
+def test_bptt70_sweep_config_preserves_model_and_isolates_artifacts():
+    repo_root = Path(__file__).resolve().parents[1]
+    original = load_yaml_config(repo_root / "configs/wikitext2/lstm_sweep.yaml")
+    bptt70 = load_yaml_config(repo_root / "configs/wikitext2/lstm_bptt70_sweep.yaml")
+    original_report = load_yaml_config(repo_root / "configs/wikitext2/report_lstm.yaml")
+    bptt70_report = load_yaml_config(repo_root / "configs/wikitext2/report_lstm_bptt70.yaml")
+
+    architecture_keys = [
+        "model",
+        "dataset",
+        "epochs",
+        "batch_size",
+        "eval_batch_size",
+        "embedding_size",
+        "hidden_size",
+        "num_layers",
+        "dropout",
+        "tie_weights",
+        "beta",
+        "weight_decay",
+        "clip_values",
+        "res_clip_values",
+    ]
+    assert {key: bptt70[key] for key in architecture_keys} == {
+        key: original[key] for key in architecture_keys
+    }
+    assert bptt70["lrs"] == [30, 40, 50]
+    assert bptt70["bptt"] == 70
+    assert bptt70["experiment_tag"] == "bptt70"
+    assert bptt70["output_dir"] != original["output_dir"]
+    assert bptt70_report["sweep_dir"] != original_report["sweep_dir"]
+    assert bptt70_report["runs_root"] != original_report["runs_root"]
+    assert bptt70_report["report_dir"] != original_report["report_dir"]
+    assert bptt70_report["figure_dir"] != original_report["figure_dir"]
+    assert bptt70_report["figure_prefix"] != original_report["figure_prefix"]
+
+
+def test_wikitext2_experiment_tag_namespaces_run_name():
+    args = Namespace(
+        run_name="lstm-sgd_momentum-lr30p0-b0p9-seed0",
+        experiment_tag="bptt70",
+    )
+    assert resolved_run_name(args) == "bptt70-lstm-sgd_momentum-lr30p0-b0p9-seed0"
 
 
 def test_registered_wikitext2_sweep_smoke(tmp_path: Path):

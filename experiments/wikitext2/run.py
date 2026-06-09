@@ -43,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fake-token-count", type=int, default=512)
     parser.add_argument("--fake-vocab-size", type=int, default=50)
     parser.add_argument("--run-name", type=str, default=None)
+    parser.add_argument(
+        "--experiment-tag",
+        type=str,
+        default=None,
+        help="Optional namespace added to run names and the derived W&B group.",
+    )
     return parser
 
 

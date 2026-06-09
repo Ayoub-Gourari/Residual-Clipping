@@ -1,0 +1,43 @@
+model: lstm
+dataset: wikitext2
+epochs: 40
+batch_size: 40
+eval_batch_size: 10
+bptt: 70
+embedding_size: 650
+hidden_size: 650
+num_layers: 2
+dropout: 0.5
+tie_weights: true
+lrs:
+  - 30
+  - 40
+  - 50
+beta: 0.9
+weight_decay: 0
+clip_values:
+  - 0.003
+  - 0.01
+  - 0.03
+  - 0.1
+  - 0.3
+  - 1.0
+  - 3.0
+  - 10.0
+res_clip_values:
+  - 0.003
+  - 0.01
+  - 0.03
+  - 0.1
+  - 0.3
+  - 1.0
+  - 3.0
+  - 10.0
+lr_milestones: ""
+lr_gamma: 0.1
+log_interval: 100
+data_dir: datasets
+output_dir: outputs/wikitext2/bptt70
+experiment_tag: bptt70
+download: false
+wandb_mode: disabled

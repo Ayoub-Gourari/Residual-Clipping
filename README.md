@@ -118,6 +118,16 @@ python scripts/run_registered_experiment.py --name wikitext2-lstm-sweep -- --res
 python scripts/run_registered_experiment.py --name wikitext2-lstm-report
 ```
 
+### WikiText-2: BPTT-70 LSTM Sweep
+
+This variant keeps the same model and clipping grids, uses learning rates `30,40,50`,
+and writes to separate run, report, figure, and W&B namespaces.
+
+```bash
+python scripts/run_registered_experiment.py --name wikitext2-lstm-bptt70-sweep -- --resume --download
+python scripts/run_registered_experiment.py --name wikitext2-lstm-bptt70-report
+```
+
 ### CIFAR-10: Three-Machine Grouped Workflow
 
 Use the helper to print one launch command per method. All three machines should share the same explicit `--wandb-group`.
@@ -169,6 +179,7 @@ Tracked model sweep configs:
 - [configs/cifar10/all_models_sweep.yaml](configs/cifar10/all_models_sweep.yaml)
 - [configs/cifar100/vgg16_sweep.yaml](configs/cifar100/vgg16_sweep.yaml)
 - [configs/wikitext2/lstm_sweep.yaml](configs/wikitext2/lstm_sweep.yaml)
+- [configs/wikitext2/lstm_bptt70_sweep.yaml](configs/wikitext2/lstm_bptt70_sweep.yaml)
 
 Tracked report configs:
 
@@ -176,6 +187,7 @@ Tracked report configs:
 - [configs/cifar10/report_all_models.yaml](configs/cifar10/report_all_models.yaml)
 - [configs/cifar100/report_vgg16.yaml](configs/cifar100/report_vgg16.yaml)
 - [configs/wikitext2/report_lstm.yaml](configs/wikitext2/report_lstm.yaml)
+- [configs/wikitext2/report_lstm_bptt70.yaml](configs/wikitext2/report_lstm_bptt70.yaml)
 
 ## Development
 

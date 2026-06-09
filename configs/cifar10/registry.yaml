@@ -49,3 +49,13 @@ experiments:
     family: wikitext2
     config: configs/wikitext2/report_lstm.yaml
     description: Collect and plot centralized WikiText-2 LSTM sweep outputs.
+  - name: wikitext2-lstm-bptt70-sweep
+    kind: sweep
+    family: wikitext2
+    config: configs/wikitext2/lstm_bptt70_sweep.yaml
+    description: 2-layer LSTM WikiText-2 sweep with BPTT 70 and learning rates 30, 40, and 50.
+  - name: wikitext2-lstm-bptt70-report
+    kind: report
+    family: wikitext2
+    config: configs/wikitext2/report_lstm_bptt70.yaml
+    description: Collect and plot the isolated WikiText-2 LSTM BPTT-70 sweep outputs.

@@ -332,6 +332,9 @@ def default_wandb_group(args) -> str:
     parts = [str(dataset), str(model_part or "model")]
     if beta is not None:
         parts.append(f"b{str(beta).replace('.', 'p')}")
+    experiment_tag = getattr(args, "experiment_tag", None)
+    if experiment_tag:
+        parts.append(str(experiment_tag))
     parts.append(f"seeds{seed_start}-{seed_start + num_seeds - 1}")
     return "-".join(parts)
 
