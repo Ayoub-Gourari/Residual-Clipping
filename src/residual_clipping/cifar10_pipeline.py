@@ -254,9 +254,11 @@ def maybe_init_wandb(args, run_name: str):
         return None
     try:
         import wandb
-    except ImportError:
-        print("wandb is not installed; skipping W&B logging.")
-        return None
+    except ImportError as exc:
+        raise RuntimeError(
+            f"W&B mode is {args.wandb_mode!r}, but the 'wandb' package is not installed. "
+            "Install it with: python3 -m pip install -e '.[wandb]'"
+        ) from exc
 
     return wandb.init(
         mode=args.wandb_mode,
@@ -281,6 +283,29 @@ def log_wandb(payload: dict[str, Any]) -> None:
     if wandb.run is not None:
         step = payload.get("train/global_step", payload.get("validation/global_step"))
         wandb.log(payload, step=step)
+
+
+def replay_wandb_history(run: Any, path: Path) -> int:
+    """Upload local JSONL metrics that are newer than the remote W&B history."""
+    if not path.exists():
+        return 0
+
+    remote_step = int(getattr(run, "step", 0) or 0)
+    is_resumed = bool(getattr(run, "resumed", False))
+    uploaded = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        step = payload.get("train/global_step", payload.get("validation/global_step"))
+        if step is None:
+            continue
+        step = int(step)
+        if is_resumed and step <= remote_step:
+            continue
+        run.log(payload, step=step)
+        uploaded += 1
+    return uploaded
 
 
 def checkpoint_path(run_dir: Path) -> Path:

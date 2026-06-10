@@ -564,9 +564,11 @@ def maybe_init_wandb(
         return None
     try:
         import wandb
-    except ImportError:
-        print("wandb is not installed; skipping W&B logging.")
-        return None
+    except ImportError as exc:
+        raise RuntimeError(
+            f"W&B mode is {mode!r}, but the 'wandb' package is not installed. "
+            "Install it with: python3 -m pip install -e '.[wandb]'"
+        ) from exc
 
     resume_mode = "allow" if resume else None
     return wandb.init(

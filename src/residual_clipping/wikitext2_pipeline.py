@@ -23,6 +23,7 @@ from .cifar10_pipeline import (
     maybe_init_wandb,
     metrics_path,
     parse_milestones,
+    replay_wandb_history,
     resolved_wandb_group,
 )
 from .clipping import tensor_list_global_norm
@@ -324,6 +325,10 @@ def run_wikitext2_experiment(args) -> dict[str, Any]:
     run = maybe_init_wandb(args, run_name)
     if run is not None and start_epoch == 1 and initial_payload is not None:
         log_wandb(initial_payload)
+    elif run is not None and start_epoch > 1:
+        uploaded = replay_wandb_history(run, metrics_path(run_dir))
+        if uploaded:
+            print(f"Uploaded {uploaded} existing metric rows to W&B before resuming.", flush=True)
 
     milestones = parse_milestones(args.lr_milestones)
     for epoch in range(start_epoch, args.epochs + 1):

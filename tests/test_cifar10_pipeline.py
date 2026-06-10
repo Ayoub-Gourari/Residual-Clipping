@@ -1,6 +1,8 @@
+import json
+
 import torch
 
-from residual_clipping.cifar10_pipeline import MomentumClipper
+from residual_clipping.cifar10_pipeline import MomentumClipper, replay_wandb_history
 
 
 def make_parameter(*values: float) -> torch.nn.Parameter:
@@ -63,3 +65,30 @@ def test_residual_clipping_uses_previous_momentum_as_center():
     assert diagnostics["clip_active"] == 1.0
     assert abs(diagnostics["cos_grad_center"] - 1.0) < 1e-6
     assert abs(diagnostics["residual_clipped_residual_norm"] - torch.linalg.vector_norm(expected_clipped_residual).item()) < 1e-6
+
+
+def test_replay_wandb_history_uploads_only_missing_steps(tmp_path):
+    metrics_path = tmp_path / "metrics.jsonl"
+    rows = [
+        {"train/global_step": 0, "validation/loss": 5.0},
+        {"train/global_step": 10, "train/loss": 4.0},
+        {"train/global_step": 20, "train/loss": 3.0},
+    ]
+    metrics_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    class FakeRun:
+        step = 10
+        resumed = True
+
+        def __init__(self):
+            self.logged = []
+
+        def log(self, payload, *, step):
+            self.logged.append((payload, step))
+
+    run = FakeRun()
+    assert replay_wandb_history(run, metrics_path) == 1
+    assert [step for _, step in run.logged] == [20]
