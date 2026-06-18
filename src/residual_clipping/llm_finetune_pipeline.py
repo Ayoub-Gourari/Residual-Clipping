@@ -62,6 +62,7 @@ def resolved_run_name(args) -> str:
         parts = [
             _tag(args.model_name),
             args.optimizer_name,
+            f"scope{_tag(getattr(args, 'clipping_scope', 'local'))}",
             f"C{str(args.clip_threshold).replace('.', 'p')}",
             f"lr{str(args.lr).replace('.', 'p')}",
             f"b1{str(args.adam_beta1).replace('.', 'p')}",
@@ -82,6 +83,20 @@ def normalize_shared_run_attrs(args) -> None:
         args.optimizer_name = args.optimizer_mode
     if not hasattr(args, "clip_threshold"):
         args.clip_threshold = math.inf
+    if not hasattr(args, "clipping_scope"):
+        args.clipping_scope = "local"
+    if not hasattr(args, "correct_bias"):
+        args.correct_bias = False
+    if not hasattr(args, "classifier_dropout"):
+        args.classifier_dropout = getattr(args, "dropout", 0.0)
+    if not hasattr(args, "val_check_interval"):
+        args.val_check_interval = None
+    if not hasattr(args, "save_checkpoints"):
+        args.save_checkpoints = False
+    if not hasattr(args, "save_final_model"):
+        args.save_final_model = False
+    if not hasattr(args, "wandb_log_model"):
+        args.wandb_log_model = False
     if not hasattr(args, "model"):
         args.model = args.model_name
     if not hasattr(args, "model_revision"):
@@ -436,7 +451,7 @@ def load_model_and_data(args, device: torch.device) -> tuple[nn.Module, FineTune
             vocab_size=args.fake_vocab_size,
             hidden_size=args.fake_hidden_size,
             num_labels=args.num_labels,
-            dropout=args.dropout,
+            dropout=args.classifier_dropout,
         ).to(device)
         data = FineTuneData(
             task_type="sequence_classification",
@@ -476,6 +491,7 @@ def load_model_and_data(args, device: torch.device) -> tuple[nn.Module, FineTune
         args.model_name,
         revision=args.model_revision,
         num_labels=args.num_labels,
+        classifier_dropout_prob=args.classifier_dropout,
         local_files_only=not args.download,
     ).to(device)
 
@@ -681,6 +697,7 @@ def train_one_epoch(
     args,
     model: nn.Module,
     train_data: torch.Tensor | dict[str, torch.Tensor],
+    validation_data: torch.Tensor | dict[str, torch.Tensor],
     task_type: str,
     optimizer: AdaptiveAdamW,
     epoch: int,
@@ -735,6 +752,9 @@ def train_one_epoch(
                 "train/batch_idx": batch_idx,
                 "train/loss": loss.item(),
                 "train/lr": args.lr,
+                "global_step": global_step,
+                "epoch": epoch,
+                "train_loss": loss.item(),
             }
             if task_type == "causal_lm":
                 payload["train/perplexity"] = perplexity(loss.item())
@@ -756,6 +776,35 @@ def train_one_epoch(
                 ),
                 flush=True,
             )
+
+        if args.val_check_interval is not None and global_step % args.val_check_interval == 0:
+            validation = evaluate(
+                model,
+                validation_data,
+                task_type=task_type,
+                batch_size=args.eval_batch_size,
+                max_batches=args.max_eval_batches,
+                device=device,
+            )
+            val_payload = {
+                "train/global_step": global_step,
+                "validation/global_step": global_step,
+                "validation/epoch": epoch,
+                "validation/loss": validation["loss"],
+                "global_step": global_step,
+                "epoch": epoch,
+                "val_loss": validation["loss"],
+            }
+            if task_type == "causal_lm":
+                val_payload["validation/perplexity"] = validation["perplexity"]
+                val_payload["validation/tokens"] = validation["tokens"]
+            else:
+                val_payload["validation/accuracy"] = validation["accuracy"]
+                val_payload["validation/examples"] = validation["examples"]
+                val_payload["val_accuracy"] = validation["accuracy"]
+            append_jsonl(metrics_path(run_dir), val_payload)
+            log_wandb(val_payload)
+            model.train()
     return global_step
 
 
@@ -795,6 +844,8 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         eps=args.adam_eps,
         weight_decay=args.weight_decay,
         clip_threshold=args.clip_threshold,
+        clipping_scope=args.clipping_scope,
+        correct_bias=args.correct_bias,
     )
     tracker = RunningDiagnostics()
     global_step = 0
@@ -832,6 +883,9 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             "validation/global_step": 0,
             "validation/epoch": 0,
             "validation/loss": initial_eval["loss"],
+            "global_step": 0,
+            "epoch": 0,
+            "val_loss": initial_eval["loss"],
             **{
                 f"run/{key}": value
                 for key, value in vars(args).items()
@@ -844,6 +898,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         else:
             initial_payload["validation/accuracy"] = initial_eval["accuracy"]
             initial_payload["validation/examples"] = initial_eval["examples"]
+            initial_payload["val_accuracy"] = initial_eval["accuracy"]
             best_validation_accuracy = initial_eval["accuracy"]
         append_jsonl(metrics_path(run_dir), initial_payload)
         best_validation_loss = initial_eval["loss"]
@@ -861,6 +916,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             args=args,
             model=model,
             train_data=data.train,
+            validation_data=data.validation,
             task_type=data.task_type,
             optimizer=optimizer,
             epoch=epoch,
@@ -894,6 +950,9 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             "validation/best_loss": best_validation_loss,
             "validation/best_epoch": best_epoch,
             "train/lr": args.lr,
+            "global_step": global_step,
+            "epoch": epoch,
+            "val_loss": validation["loss"],
         }
         if data.task_type == "causal_lm":
             payload["validation/perplexity"] = validation["perplexity"]
@@ -903,6 +962,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             payload["validation/accuracy"] = validation["accuracy"]
             payload["validation/best_accuracy"] = best_validation_accuracy
             payload["validation/examples"] = validation["examples"]
+            payload["val_accuracy"] = validation["accuracy"]
         append_jsonl(metrics_path(run_dir), payload)
         log_wandb(payload)
         if data.task_type == "causal_lm":
@@ -919,18 +979,19 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
                 f"best_acc={best_validation_accuracy:.2f}@{best_epoch} lr={args.lr}",
                 flush=True,
             )
-        save_checkpoint(
-            checkpoint_path(run_dir),
-            model=model,
-            optimizer=optimizer,
-            epoch=epoch,
-            global_step=global_step,
-            best_validation_loss=best_validation_loss,
-            best_validation_accuracy=best_validation_accuracy,
-            best_epoch=best_epoch,
-            tracker=tracker,
-            args_dict={key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
-        )
+        if args.save_checkpoints:
+            save_checkpoint(
+                checkpoint_path(run_dir),
+                model=model,
+                optimizer=optimizer,
+                epoch=epoch,
+                global_step=global_step,
+                best_validation_loss=best_validation_loss,
+                best_validation_accuracy=best_validation_accuracy,
+                best_epoch=best_epoch,
+                tracker=tracker,
+                args_dict={key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
+            )
 
     test = evaluate(
         model,
@@ -952,6 +1013,8 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         "optimizer_name": args.optimizer_name,
         "optimizer_mode": args.optimizer_name,
         "clip_threshold": args.clip_threshold,
+        "clipping_scope": args.clipping_scope,
+        "correct_bias": args.correct_bias,
         "best_validation_loss": best_validation_loss,
         "best_validation_perplexity": perplexity(best_validation_loss) if data.task_type == "causal_lm" else None,
         "best_validation_accuracy": best_validation_accuracy,
@@ -966,6 +1029,11 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         "adam_beta2": args.adam_beta2,
         "adam_eps": args.adam_eps,
         "weight_decay": args.weight_decay,
+        "classifier_dropout": args.classifier_dropout,
+        "val_check_interval": args.val_check_interval,
+        "save_checkpoints": args.save_checkpoints,
+        "save_final_model": args.save_final_model,
+        "wandb_log_model": args.wandb_log_model,
         "sequence_length": args.sequence_length,
         "batch_size": args.batch_size,
         "eval_batch_size": args.eval_batch_size,
@@ -979,6 +1047,8 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         "completed": 1,
         "diagnostics": tracker.summarize(),
     }
+    if args.save_final_model:
+        torch.save(model.state_dict(), run_dir / "final_model.pt")
     atomic_write_json(summary_path(run_dir), summary)
     if run is not None:
         run.finish()
@@ -1036,7 +1106,17 @@ def summarize_sweep_results(results: pd.DataFrame) -> pd.DataFrame:
     for column in ["lr", "clip_threshold", "best_validation_loss", "best_validation_perplexity", "best_validation_accuracy"]:
         if column in results.columns:
             results[column] = pd.to_numeric(results[column], errors="coerce")
-    group_cols = ["model", "dataset", "dataset_config", "task_type", "optimizer_name", "clip_threshold", "lr"]
+    group_cols = [
+        "model",
+        "dataset",
+        "dataset_config",
+        "task_type",
+        "optimizer_name",
+        "clipping_scope",
+        "correct_bias",
+        "clip_threshold",
+        "lr",
+    ]
     grouped = results.groupby(group_cols, dropna=False)
     aggregations: dict[str, tuple[str, str]] = {
         "best_loss": ("best_validation_loss", "min"),

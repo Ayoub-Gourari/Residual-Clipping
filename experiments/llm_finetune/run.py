@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from residual_clipping.adaptive_optimizers import ADAPTIVE_OPTIMIZER_NAMES
+from residual_clipping.adaptive_optimizers import ADAPTIVE_OPTIMIZER_NAMES, CLIPPING_SCOPES
 from residual_clipping.cli import add_resume_args, add_wandb_args
 from residual_clipping.llm_finetune_pipeline import (
     DATASET_SOURCES,
@@ -22,6 +22,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-type", choices=TASK_TYPES, default="causal_lm")
     parser.add_argument("--model-source", choices=MODEL_SOURCES, default="fake")
     parser.add_argument("--model-name", type=str, default="tiny-causal-lm")
+    parser.add_argument(
+        "--model-checkpoint",
+        dest="model_name",
+        type=str,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument(
         "--model-revision",
         type=str,
@@ -52,13 +59,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-batch-size", type=int, default=4)
     parser.add_argument("--sequence-length", type=int, default=64)
     parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--learning-rate", dest="lr", type=float, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     parser.add_argument("--adam-beta1", type=float, default=0.9)
     parser.add_argument("--adam-beta2", type=float, default=0.999)
     parser.add_argument("--adam-eps", type=float, default=1e-8)
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--clip-threshold", type=float, default=float("inf"))
+    parser.add_argument("--clipping-scope", choices=CLIPPING_SCOPES, default="local")
+    parser.add_argument("--correct-bias", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--classifier-dropout", type=float, default=0.0)
     parser.add_argument("--log-interval", type=int, default=10)
+    parser.add_argument("--val-check-interval", type=int, default=None)
     parser.add_argument("--max-train-batches", type=int, default=None)
     parser.add_argument("--max-eval-batches", type=int, default=None)
     parser.add_argument("--max-train-sequences", type=int, default=None)
@@ -69,6 +81,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fake-hidden-size", type=int, default=64)
     parser.add_argument("--fake-num-layers", type=int, default=1)
     parser.add_argument("--run-name", type=str, default=None)
+    parser.add_argument("--save-checkpoints", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--save-final-model", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--wandb-log-model", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument(
         "--experiment-tag",
         type=str,
@@ -109,6 +124,10 @@ def validate_args(args, *, sweep: bool = False) -> None:
         raise ValueError("--weight-decay must be non-negative.")
     if args.clip_threshold < 0.0:
         raise ValueError("--clip-threshold must be non-negative.")
+    if args.classifier_dropout < 0.0 or args.classifier_dropout >= 1.0:
+        raise ValueError("--classifier-dropout must be in [0,1).")
+    if args.val_check_interval is not None and args.val_check_interval < 1:
+        raise ValueError("--val-check-interval must be >= 1 when provided.")
     if args.fake_vocab_size < 2:
         raise ValueError("--fake-vocab-size must be >= 2.")
     if args.fake_train_sequences < 1 or args.fake_eval_sequences < 1:

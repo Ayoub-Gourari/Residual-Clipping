@@ -13,6 +13,8 @@ def test_adamw_first_step_matches_bias_corrected_update_with_decoupled_decay():
         eps=1e-8,
         weight_decay=0.01,
         clip_threshold=float("inf"),
+        clipping_scope="global",
+        correct_bias=True,
     )
 
     diagnostics = optimizer.step([torch.tensor([0.5, -0.25])], lr=0.1)
@@ -35,6 +37,7 @@ def test_adamw_rejects_unknown_mode():
             beta2=0.999,
             eps=1e-8,
             weight_decay=0.0,
+            clipping_scope="local",
         )
     except ValueError as exc:
         assert "Unsupported optimizer_name" in str(exc)
@@ -55,6 +58,8 @@ def test_all_adamw_optimizer_names_produce_requested_diagnostics_without_nans():
         "grad_global_norm",
         "pseudo_grad_global_norm",
         "clipping_scale",
+        "residual_global_norm",
+        "metric_residual_global_norm",
         "update_global_norm",
         "adam_m_global_norm",
         "adam_v_global_norm",
@@ -71,6 +76,8 @@ def test_all_adamw_optimizer_names_produce_requested_diagnostics_without_nans():
             eps=1e-8,
             weight_decay=0.0,
             clip_threshold=0.5,
+            clipping_scope="local",
+            correct_bias=False,
         )
 
         diagnostics = None
@@ -80,10 +87,6 @@ def test_all_adamw_optimizer_names_produce_requested_diagnostics_without_nans():
 
         assert diagnostics is not None
         assert required_keys.issubset(diagnostics)
-        if "resclip" in name:
-            assert "residual_global_norm" in diagnostics
-        if name == "adamw_resclip_metric":
-            assert "metric_residual_global_norm" in diagnostics
         for key, value in diagnostics.items():
             if isinstance(value, float):
                 assert torch.isfinite(torch.tensor(value))

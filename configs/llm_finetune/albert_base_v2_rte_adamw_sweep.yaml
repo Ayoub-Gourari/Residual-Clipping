@@ -1,6 +1,6 @@
 task_type: sequence_classification
 model_source: hf
-model_name: albert/albert-base-v2
+model_name: albert-base-v2
 model_revision: 8e2f239
 dataset_source: hf
 dataset_name: glue
@@ -12,26 +12,34 @@ sentence1_column: sentence1
 sentence2_column: sentence2
 label_column: label
 num_labels: 2
-epochs: 3
-batch_size: 16
-eval_batch_size: 32
+epochs: 1
+batch_size: 8
+eval_batch_size: 8
 sequence_length: 128
 lrs:
-  - 0.00002
-  - 0.00003
-  - 0.00005
+  - 0.00001
 adam_beta1: 0.9
 adam_beta2: 0.999
-adam_eps: 0.00000001
-weight_decay: 0.01
+adam_eps: 0.000001
+weight_decay: 0.0
+correct_bias: false
+classifier_dropout: 0.0
+val_check_interval: 12
+clipping_scope: local
 optimizer_names:
   - adamw_uncut
+  - adamw_clip
+  - adamw_resclip_euclidean
+  - adamw_resclip_metric
 clip_thresholds:
-  - 1.0e30
-seed_start: 0
-num_seeds: 3
+  - 1.0
+seed_start: 123
+num_seeds: 1
 log_interval: 20
 data_dir: datasets
 output_dir: outputs/llm_finetune
 download: true
+save_checkpoints: false
+save_final_model: false
+wandb_log_model: false
 wandb_mode: disabled

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+EXTRA_ARGS=("$@")
+MODEL_CHECKPOINT="${MODEL_CHECKPOINT:-albert-base-v2}"
+MODEL_REVISION="${MODEL_REVISION:-8e2f239}"
+SEEDS=(123 0 1)
+THRESHOLDS=(0.1 0.3 1.0 3.0 10.0)
+
+COMMON=(
+  python train.py
+  --task rte
+  --model_checkpoint "${MODEL_CHECKPOINT}"
+  --model-revision "${MODEL_REVISION}"
+  --max_epochs 1
+  --batch_size 8
+  --eval_batch_size 8
+  --learning_rate 1e-5
+  --betas 0.9,0.999
+  --eps 1e-6
+  --weight_decay 0.0
+  --correct_bias false
+  --classifier_dropout 0.0
+  --val_check_interval 12
+  --clipping_scope local
+  --save_checkpoints false
+  --save_final_model false
+  --wandb_log_model false
+  --resume
+)
+
+run_one() {
+  local optimizer_name="$1"
+  local clip_threshold="$2"
+  local seed="$3"
+  "${COMMON[@]}" \
+    --optimizer_name "${optimizer_name}" \
+    --clip_threshold "${clip_threshold}" \
+    --seed "${seed}" \
+    "${EXTRA_ARGS[@]}"
+}
+
+for seed in "${SEEDS[@]}"; do
+  run_one adamw_uncut inf "${seed}"
+  for optimizer_name in adamw_clip adamw_resclip_euclidean adamw_resclip_metric; do
+    for clip_threshold in "${THRESHOLDS[@]}"; do
+      run_one "${optimizer_name}" "${clip_threshold}" "${seed}"
+    done
+  done
+done

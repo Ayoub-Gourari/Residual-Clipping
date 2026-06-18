@@ -39,6 +39,8 @@ def make_args(tmp_path, **overrides):
         "download": False,
         "optimizer_name": "adamw_uncut",
         "clip_threshold": float("inf"),
+        "clipping_scope": "local",
+        "correct_bias": False,
         "seed": 0,
         "use_cuda": False,
         "epochs": 1,
@@ -51,7 +53,9 @@ def make_args(tmp_path, **overrides):
         "adam_eps": 1e-8,
         "weight_decay": 0.0,
         "dropout": 0.0,
+        "classifier_dropout": 0.0,
         "log_interval": 1,
+        "val_check_interval": None,
         "max_train_batches": 2,
         "max_eval_batches": 1,
         "max_train_sequences": None,
@@ -62,6 +66,9 @@ def make_args(tmp_path, **overrides):
         "fake_hidden_size": 8,
         "fake_num_layers": 1,
         "run_name": "fake-llm-smoke",
+        "save_checkpoints": False,
+        "save_final_model": False,
+        "wandb_log_model": False,
         "experiment_tag": None,
     }
     values.update(overrides)

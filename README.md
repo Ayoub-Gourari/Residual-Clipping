@@ -9,6 +9,7 @@ This repository is organized around two experiment families:
 - Synthetic quadratics for lightweight optimization and threshold-sensitivity studies.
 - Centralized CIFAR image-classification runs, including CIFAR-10 with `resnet20`, `resnet18`, and `vgg16`, plus CIFAR-100 with `vgg16`.
 - WikiText-2 word-level language modeling with a tied-weight 2-layer LSTM.
+- Storage-conscious ALBERT-base-v2 fine-tuning on GLUE/RTE with AdamW clipping variants.
 
 The current codebase includes a resumable synthetic quadratics pipeline and a centralized CIFAR pipeline with common utilities, reproducible CLI conventions, and plotting entrypoints.
 
@@ -126,6 +127,50 @@ and writes to separate run, report, figure, and W&B namespaces.
 ```bash
 python scripts/run_registered_experiment.py --name wikitext2-lstm-bptt70-sweep -- --resume --download
 python scripts/run_registered_experiment.py --name wikitext2-lstm-bptt70-report
+```
+
+### ALBERT Base v2: RTE Fine-Tuning
+
+The ALBERT/RTE path compares exactly:
+
+- `adamw_uncut`
+- `adamw_clip`
+- `adamw_resclip_euclidean`
+- `adamw_resclip_metric`
+
+It defaults to scalar-only logs, no checkpoints, no final model save, and no W&B model artifacts. Use external caches when storage is tight:
+
+```bash
+export HF_HOME=/path/to/cache
+export TRANSFORMERS_CACHE=/path/to/cache/transformers
+export HF_DATASETS_CACHE=/path/to/cache/datasets
+export WANDB_DIR=/path/to/wandb
+export WANDB_CACHE_DIR=/path/to/wandb/cache
+```
+
+Smoke-test the optimizer implementation:
+
+```bash
+python scripts/smoke_test_optimizers.py
+```
+
+Run the four stage-1 RTE comparisons:
+
+```bash
+python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_uncut --clip_threshold inf --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+
+python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_clip --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+
+python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_resclip_euclidean --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+
+python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_resclip_metric --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+```
+
+Scripted runs:
+
+```bash
+bash scripts/run_albert_rte_stage1.sh
+bash scripts/run_albert_rte_threshold_sensitivity.sh
 ```
 
 ### CIFAR-10: Three-Machine Grouped Workflow
