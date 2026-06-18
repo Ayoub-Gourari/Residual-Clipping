@@ -21,6 +21,27 @@ def default_cache_dir() -> Path:
     return Path(os.environ.get("HF_HOME", "~/.cache/huggingface")).expanduser()
 
 
+def prepare_cache_dir(path: Path) -> Path:
+    cache_root = path.expanduser().resolve()
+    if str(cache_root) == "/path" or str(cache_root).startswith("/path/"):
+        raise SystemExit(
+            "Replace /path/to/shared/hf-cache with a real writable directory, for example:\n"
+            "  export HF_HOME=\"$HOME/.cache/huggingface\"\n"
+            "  python scripts/prefetch_albert_rte.py --cache-dir \"$HF_HOME\""
+        )
+    try:
+        (cache_root / "transformers").mkdir(parents=True, exist_ok=True)
+        (cache_root / "datasets").mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Cannot write to cache directory {cache_root}.\n"
+            "Choose a directory owned by your user, for example:\n"
+            "  export HF_HOME=\"$HOME/.cache/huggingface\"\n"
+            "  python scripts/prefetch_albert_rte.py --cache-dir \"$HF_HOME\""
+        ) from exc
+    return cache_root
+
+
 @contextlib.contextmanager
 def file_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,11 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    cache_root = args.cache_dir.expanduser().resolve()
+    cache_root = prepare_cache_dir(args.cache_dir)
     transformers_cache = cache_root / "transformers"
     datasets_cache = cache_root / "datasets"
-    transformers_cache.mkdir(parents=True, exist_ok=True)
-    datasets_cache.mkdir(parents=True, exist_ok=True)
 
     os.environ.setdefault("HF_HOME", str(cache_root))
     os.environ.setdefault("TRANSFORMERS_CACHE", str(transformers_cache))

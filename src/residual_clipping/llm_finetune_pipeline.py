@@ -126,6 +126,8 @@ def normalize_shared_run_attrs(args) -> None:
         args.classifier_dropout = getattr(args, "dropout", 0.0)
     if not hasattr(args, "val_check_interval"):
         args.val_check_interval = None
+    if not hasattr(args, "warmup_ratio"):
+        args.warmup_ratio = 0.0
     if not hasattr(args, "hf_cache_dir"):
         args.hf_cache_dir = None
     if not hasattr(args, "save_checkpoints"):
@@ -716,6 +718,31 @@ def evaluate(
     raise ValueError(f"Unsupported task_type={task_type!r}.")
 
 
+def num_training_examples(train_data: torch.Tensor | dict[str, torch.Tensor]) -> int:
+    if isinstance(train_data, torch.Tensor):
+        return int(train_data.size(0))
+    return int(train_data["labels"].size(0))
+
+
+def steps_per_epoch(
+    train_data: torch.Tensor | dict[str, torch.Tensor],
+    *,
+    batch_size: int,
+    max_train_batches: int | None,
+) -> int:
+    steps = math.ceil(num_training_examples(train_data) / batch_size)
+    if max_train_batches is not None:
+        steps = min(steps, max_train_batches)
+    return max(steps, 1)
+
+
+def scheduled_learning_rate(base_lr: float, step: int, total_steps: int, warmup_ratio: float) -> float:
+    warmup_steps = int(math.ceil(max(total_steps, 1) * warmup_ratio))
+    if warmup_steps <= 0:
+        return base_lr
+    return base_lr * min(1.0, float(step) / float(warmup_steps))
+
+
 def train_one_epoch(
     *,
     args,
@@ -729,6 +756,7 @@ def train_one_epoch(
     tracker: RunningDiagnostics,
     run_dir: Path,
     device: torch.device,
+    total_training_steps: int,
 ) -> int:
     model.train()
     params = [param for param in model.parameters() if param.requires_grad]
@@ -765,7 +793,8 @@ def train_one_epoch(
         loss.backward()
         should_log = batch_idx % args.log_interval == 0
         grads = collect_trainable_gradients(params, clone=False)
-        diagnostics = optimizer.step(grads, args.lr, collect_diagnostics=should_log)
+        step_lr = scheduled_learning_rate(args.lr, global_step + 1, total_training_steps, args.warmup_ratio)
+        diagnostics = optimizer.step(grads, step_lr, collect_diagnostics=should_log)
         tracker.update(diagnostics)
 
         global_step += 1
@@ -775,10 +804,11 @@ def train_one_epoch(
                 "train/epoch": epoch,
                 "train/batch_idx": batch_idx,
                 "train/loss": loss.item(),
-                "train/lr": args.lr,
+                "train/lr": step_lr,
                 "global_step": global_step,
                 "epoch": epoch,
                 "train_loss": loss.item(),
+                "learning_rate": step_lr,
             }
             if task_type == "causal_lm":
                 payload["train/perplexity"] = perplexity(loss.item())
@@ -859,6 +889,11 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
 
     set_global_seed(args.seed)
     model, data = load_model_and_data(args, device)
+    total_training_steps = steps_per_epoch(
+        data.train,
+        batch_size=args.batch_size,
+        max_train_batches=args.max_train_batches,
+    ) * args.epochs
     params = [param for param in model.parameters() if param.requires_grad]
     optimizer = AdaptiveAdamW(
         params,
@@ -948,6 +983,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             tracker=tracker,
             run_dir=run_dir,
             device=device,
+            total_training_steps=total_training_steps,
         )
         validation = evaluate(
             model,
@@ -973,7 +1009,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             "validation/loss": validation["loss"],
             "validation/best_loss": best_validation_loss,
             "validation/best_epoch": best_epoch,
-            "train/lr": args.lr,
+            "train/lr": scheduled_learning_rate(args.lr, global_step, total_training_steps, args.warmup_ratio),
             "global_step": global_step,
             "epoch": epoch,
             "val_loss": validation["loss"],
@@ -1053,6 +1089,8 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         "adam_beta2": args.adam_beta2,
         "adam_eps": args.adam_eps,
         "weight_decay": args.weight_decay,
+        "warmup_ratio": args.warmup_ratio,
+        "total_training_steps": total_training_steps,
         "classifier_dropout": args.classifier_dropout,
         "val_check_interval": args.val_check_interval,
         "save_checkpoints": args.save_checkpoints,

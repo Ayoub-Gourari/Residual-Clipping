@@ -53,6 +53,7 @@ def make_args(tmp_path, **overrides):
         "adam_beta2": 0.999,
         "adam_eps": 1e-8,
         "weight_decay": 0.0,
+        "warmup_ratio": 0.0,
         "dropout": 0.0,
         "classifier_dropout": 0.0,
         "log_interval": 1,

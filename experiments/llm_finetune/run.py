@@ -70,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adam-beta2", type=float, default=0.999)
     parser.add_argument("--adam-eps", type=float, default=1e-8)
     parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--warmup-ratio", type=float, default=0.0)
     parser.add_argument("--clip-threshold", type=float, default=float("inf"))
     parser.add_argument("--clipping-scope", choices=CLIPPING_SCOPES, default="local")
     parser.add_argument("--correct-bias", action=argparse.BooleanOptionalAction, default=False)
@@ -128,6 +129,8 @@ def validate_args(args, *, sweep: bool = False) -> None:
         raise ValueError("--adam-eps must be positive.")
     if args.weight_decay < 0.0:
         raise ValueError("--weight-decay must be non-negative.")
+    if args.warmup_ratio < 0.0 or args.warmup_ratio > 1.0:
+        raise ValueError("--warmup-ratio must be in [0,1].")
     if args.clip_threshold < 0.0:
         raise ValueError("--clip-threshold must be non-negative.")
     if args.classifier_dropout < 0.0 or args.classifier_dropout >= 1.0:

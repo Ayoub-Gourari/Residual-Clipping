@@ -141,11 +141,11 @@ The ALBERT/RTE path compares exactly:
 It defaults to scalar-only logs, no checkpoints, no final model save, and no W&B model artifacts. Use external caches when storage is tight:
 
 ```bash
-export HF_HOME=/path/to/cache
-export TRANSFORMERS_CACHE=/path/to/cache/transformers
-export HF_DATASETS_CACHE=/path/to/cache/datasets
-export WANDB_DIR=/path/to/wandb
-export WANDB_CACHE_DIR=/path/to/wandb/cache
+export HF_HOME="$HOME/.cache/huggingface"
+export TRANSFORMERS_CACHE="$HF_HOME/transformers"
+export HF_DATASETS_CACHE="$HF_HOME/datasets"
+export WANDB_DIR="$HOME/.cache/wandb"
+export WANDB_CACHE_DIR="$WANDB_DIR/cache"
 ```
 
 Warm the ALBERT/RTE cache once before launching runs from several SSH sessions:
@@ -181,6 +181,15 @@ Scripted runs:
 ```bash
 bash scripts/run_albert_rte_stage1.sh
 bash scripts/run_albert_rte_threshold_sensitivity.sh
+```
+
+Chezhegov-style ALBERT/RTE reproduction:
+
+```bash
+python scripts/smoke_test_optimizers.py
+bash scripts/run_albert_rte_reproduction_stage1.sh
+bash scripts/run_albert_rte_reproduction_seeds.sh
+python scripts/aggregate_rte_reproduction.py
 ```
 
 ### CIFAR-10: Three-Machine Grouped Workflow

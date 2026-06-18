@@ -88,6 +88,7 @@ def make_args(output_dir: Path, optimizer_name: str, clip_threshold: float) -> a
         adam_beta2=0.99,
         adam_eps=1e-8,
         weight_decay=0.01,
+        warmup_ratio=0.0,
         clip_threshold=clip_threshold,
         clipping_scope="local",
         correct_bias=False,
