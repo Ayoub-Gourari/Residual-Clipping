@@ -1,0 +1,27 @@
+task_type: causal_lm
+model_source: fake
+model_name: tiny-causal-lm
+dataset_source: fake
+dataset_name: fake_causal_lm
+epochs: 1
+batch_size: 4
+eval_batch_size: 4
+sequence_length: 32
+lrs:
+  - 0.001
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_eps: 0.00000001
+weight_decay: 0.0
+optimizer_modes:
+  - adamw
+seed_start: 0
+num_seeds: 1
+fake_train_sequences: 32
+fake_eval_sequences: 8
+fake_vocab_size: 64
+fake_hidden_size: 32
+fake_num_layers: 1
+log_interval: 4
+output_dir: outputs/llm_finetune
+wandb_mode: disabled

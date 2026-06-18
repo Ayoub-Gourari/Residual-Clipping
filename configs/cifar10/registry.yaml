@@ -59,3 +59,13 @@ experiments:
     family: wikitext2
     config: configs/wikitext2/report_lstm_bptt70.yaml
     description: Collect and plot the isolated WikiText-2 LSTM BPTT-70 sweep outputs.
+  - name: llm-fake-tiny-adamw-sweep
+    kind: sweep
+    family: llm_finetune
+    config: configs/llm_finetune/fake_tiny_adamw_sweep.yaml
+    description: Local smoke sweep for causal language-model fine-tuning with AdamW.
+  - name: rte-albert-base-v2-adamw-sweep
+    kind: sweep
+    family: llm_finetune
+    config: configs/llm_finetune/albert_base_v2_rte_adamw_sweep.yaml
+    description: ALBERT-base-v2 fine-tuning sweep on GLUE RTE with AdamW.

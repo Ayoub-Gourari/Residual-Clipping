@@ -24,6 +24,10 @@ dev = [
 wandb = [
     "wandb>=0.17",
 ]
+llm = [
+    "datasets>=2.19",
+    "transformers>=4.40",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
