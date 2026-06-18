@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from residual_clipping.adaptive_optimizers import ADAPTIVE_OPTIMIZER_MODES
+from residual_clipping.adaptive_optimizers import ADAPTIVE_OPTIMIZER_NAMES
 from residual_clipping.llm_finetune_pipeline import run_sweep, summarize_sweep_results, sweep_output_dir
 from residual_clipping.quadratics import parse_float_list
 
@@ -21,13 +21,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = build_run_parser()
     parser.description = "Run transformer fine-tuning sweeps."
     for action in parser._actions:
-        if action.dest == "optimizer_mode":
+        if action.dest == "optimizer_name":
             action.required = False
             action.default = None
         if action.dest == "lr":
             action.default = None
-    parser.add_argument("--optimizer-modes", type=parse_string_list, default=list(ADAPTIVE_OPTIMIZER_MODES))
+    parser.add_argument("--optimizer-names", type=parse_string_list, default=list(ADAPTIVE_OPTIMIZER_NAMES))
+    parser.add_argument("--optimizer-modes", dest="optimizer_names", type=parse_string_list, help=argparse.SUPPRESS)
     parser.add_argument("--lrs", type=parse_float_list, default=[5e-4])
+    parser.add_argument("--clip-thresholds", type=parse_float_list, default=[float("inf")])
     parser.add_argument("--seed-start", type=int, default=0)
     parser.add_argument("--num-seeds", type=int, default=1)
     return parser
@@ -35,13 +37,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def validate_sweep_args(args) -> None:
     validate_args(args, sweep=True)
-    if not args.optimizer_modes:
-        raise ValueError("--optimizer-modes must contain at least one mode.")
-    unknown = sorted(set(args.optimizer_modes) - set(ADAPTIVE_OPTIMIZER_MODES))
+    if not args.optimizer_names:
+        raise ValueError("--optimizer-names must contain at least one optimizer.")
+    unknown = sorted(set(args.optimizer_names) - set(ADAPTIVE_OPTIMIZER_NAMES))
     if unknown:
-        raise ValueError(f"Unknown optimizer modes: {', '.join(unknown)}")
+        raise ValueError(f"Unknown optimizer names: {', '.join(unknown)}")
     if not args.lrs:
         raise ValueError("--lrs must contain at least one learning rate.")
+    if not args.clip_thresholds:
+        raise ValueError("--clip-thresholds must contain at least one threshold.")
+    if any(value < 0.0 for value in args.clip_thresholds):
+        raise ValueError("--clip-thresholds must be non-negative.")
     if args.num_seeds < 1:
         raise ValueError("--num-seeds must be >= 1.")
 

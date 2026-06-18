@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from residual_clipping.adaptive_optimizers import ADAPTIVE_OPTIMIZER_MODES
+from residual_clipping.adaptive_optimizers import ADAPTIVE_OPTIMIZER_NAMES
 from residual_clipping.cli import add_resume_args, add_wandb_args
 from residual_clipping.llm_finetune_pipeline import (
     DATASET_SOURCES,
@@ -37,7 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validation-file", type=Path, default=None)
     parser.add_argument("--data-dir", type=Path, default=Path("datasets"))
     parser.add_argument("--download", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--optimizer-mode", choices=ADAPTIVE_OPTIMIZER_MODES, required=True)
+    parser.add_argument("--optimizer-name", choices=ADAPTIVE_OPTIMIZER_NAMES, required=True)
+    parser.add_argument("--optimizer-mode", dest="optimizer_name", choices=ADAPTIVE_OPTIMIZER_NAMES, help=argparse.SUPPRESS)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--use-cuda", action="store_true", default=False)
     parser.add_argument("--epochs", type=int, default=1)
@@ -49,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adam-beta2", type=float, default=0.999)
     parser.add_argument("--adam-eps", type=float, default=1e-8)
     parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--clip-threshold", type=float, default=float("inf"))
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--log-interval", type=int, default=10)
     parser.add_argument("--max-train-batches", type=int, default=None)
@@ -71,8 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args, *, sweep: bool = False) -> None:
-    if not sweep and args.optimizer_mode is None:
-        raise ValueError("--optimizer-mode is required.")
+    if not sweep and args.optimizer_name is None:
+        raise ValueError("--optimizer-name is required.")
     if args.model_source == "fake" and args.dataset_source != "fake":
         raise ValueError("--model-source fake requires --dataset-source fake.")
     if args.model_source == "hf" and args.model_name == "tiny-causal-lm":
@@ -99,6 +101,8 @@ def validate_args(args, *, sweep: bool = False) -> None:
         raise ValueError("--adam-eps must be positive.")
     if args.weight_decay < 0.0:
         raise ValueError("--weight-decay must be non-negative.")
+    if args.clip_threshold < 0.0:
+        raise ValueError("--clip-threshold must be non-negative.")
     if args.fake_vocab_size < 2:
         raise ValueError("--fake-vocab-size must be >= 2.")
     if args.fake_train_sequences < 1 or args.fake_eval_sequences < 1:

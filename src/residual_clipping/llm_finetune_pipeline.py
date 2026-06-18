@@ -61,7 +61,8 @@ def resolved_run_name(args) -> str:
     else:
         parts = [
             _tag(args.model_name),
-            args.optimizer_mode,
+            args.optimizer_name,
+            f"C{str(args.clip_threshold).replace('.', 'p')}",
             f"lr{str(args.lr).replace('.', 'p')}",
             f"b1{str(args.adam_beta1).replace('.', 'p')}",
             f"b2{str(args.adam_beta2).replace('.', 'p')}",
@@ -77,6 +78,10 @@ def resolved_run_name(args) -> str:
 
 def normalize_shared_run_attrs(args) -> None:
     """Populate shared attribute names used by cross-family logging helpers."""
+    if not hasattr(args, "optimizer_name") and hasattr(args, "optimizer_mode"):
+        args.optimizer_name = args.optimizer_mode
+    if not hasattr(args, "clip_threshold"):
+        args.clip_threshold = math.inf
     if not hasattr(args, "model"):
         args.model = args.model_name
     if not hasattr(args, "dataset"):
@@ -769,11 +774,12 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
     params = [param for param in model.parameters() if param.requires_grad]
     optimizer = AdaptiveAdamW(
         params,
-        mode=args.optimizer_mode,
+        optimizer_name=args.optimizer_name,
         beta1=args.adam_beta1,
         beta2=args.adam_beta2,
         eps=args.adam_eps,
         weight_decay=args.weight_decay,
+        clip_threshold=args.clip_threshold,
     )
     tracker = RunningDiagnostics()
     global_step = 0
@@ -927,7 +933,9 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         "dataset_config": args.dataset_config,
         "dataset_source": args.dataset_source,
         "task_type": data.task_type,
-        "optimizer_mode": args.optimizer_mode,
+        "optimizer_name": args.optimizer_name,
+        "optimizer_mode": args.optimizer_name,
+        "clip_threshold": args.clip_threshold,
         "best_validation_loss": best_validation_loss,
         "best_validation_perplexity": perplexity(best_validation_loss) if data.task_type == "causal_lm" else None,
         "best_validation_accuracy": best_validation_accuracy,
@@ -964,21 +972,25 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class SweepConfig:
-    optimizer_mode: str
+    optimizer_name: str
     lr: float
+    clip_threshold: float
     seed: int
 
     @property
     def config_id(self) -> str:
-        return f"llm-{self.optimizer_mode}-lr{str(self.lr).replace('.', 'p')}-seed{self.seed}"
+        clip_tag = str(self.clip_threshold).replace(".", "p")
+        return f"llm-{self.optimizer_name}-C{clip_tag}-lr{str(self.lr).replace('.', 'p')}-seed{self.seed}"
 
 
 def build_sweep_configs(args) -> list[SweepConfig]:
     configs = []
-    for optimizer_mode in args.optimizer_modes:
+    for optimizer_name in args.optimizer_names:
+        thresholds = [float("inf")] if optimizer_name == "adamw_uncut" else args.clip_thresholds
         for lr in args.lrs:
-            for seed in range(args.seed_start, args.seed_start + args.num_seeds):
-                configs.append(SweepConfig(optimizer_mode, float(lr), seed))
+            for clip_threshold in thresholds:
+                for seed in range(args.seed_start, args.seed_start + args.num_seeds):
+                    configs.append(SweepConfig(optimizer_name, float(lr), float(clip_threshold), seed))
     return configs
 
 
@@ -988,8 +1000,9 @@ def run_sweep(args) -> pd.DataFrame:
     completed = 0
     for config in configs:
         run_args = argparse.Namespace(**vars(args))
-        run_args.optimizer_mode = config.optimizer_mode
+        run_args.optimizer_name = config.optimizer_name
         run_args.lr = config.lr
+        run_args.clip_threshold = config.clip_threshold
         run_args.seed = config.seed
         dataset_tag = _tag(args.dataset_config or args.dataset_name)
         run_args.run_name = f"{_tag(args.model_name)}-{dataset_tag}-{_tag(args.task_type)}-{config.config_id}"
@@ -1004,10 +1017,10 @@ def summarize_sweep_results(results: pd.DataFrame) -> pd.DataFrame:
     if results.empty:
         return results
     results = results.copy()
-    for column in ["lr", "best_validation_loss", "best_validation_perplexity", "best_validation_accuracy"]:
+    for column in ["lr", "clip_threshold", "best_validation_loss", "best_validation_perplexity", "best_validation_accuracy"]:
         if column in results.columns:
             results[column] = pd.to_numeric(results[column], errors="coerce")
-    group_cols = ["model", "dataset", "dataset_config", "task_type", "optimizer_mode", "lr"]
+    group_cols = ["model", "dataset", "dataset_config", "task_type", "optimizer_name", "clip_threshold", "lr"]
     grouped = results.groupby(group_cols, dropna=False)
     aggregations: dict[str, tuple[str, str]] = {
         "best_loss": ("best_validation_loss", "min"),

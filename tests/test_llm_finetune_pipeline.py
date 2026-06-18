@@ -36,7 +36,8 @@ def make_args(tmp_path, **overrides):
         "validation_file": None,
         "data_dir": tmp_path / "datasets",
         "download": False,
-        "optimizer_mode": "adamw",
+        "optimizer_name": "adamw_uncut",
+        "clip_threshold": float("inf"),
         "seed": 0,
         "use_cuda": False,
         "epochs": 1,
@@ -73,18 +74,19 @@ def test_fake_llm_finetune_writes_summary_and_metrics(tmp_path):
 
     run_dir = tmp_path / "fake-llm-smoke"
     assert summary["completed"] == 1
-    assert summary["optimizer_mode"] == "adamw"
+    assert summary["optimizer_name"] == "adamw_uncut"
     assert summary["global_step"] == 2
     assert (run_dir / "metrics.jsonl").exists()
     written_summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert written_summary["run_name"] == "fake-llm-smoke"
-    assert "adam_update_norm_mean" in written_summary["diagnostics"]
+    assert "update_global_norm_mean" in written_summary["diagnostics"]
 
 
 def test_fake_llm_sweep_writes_expected_rows(tmp_path):
     args = make_args(
         tmp_path,
-        optimizer_modes=["adamw"],
+        optimizer_names=["adamw_uncut"],
+        clip_thresholds=[float("inf")],
         lrs=[0.001, 0.0005],
         seed_start=0,
         num_seeds=1,
