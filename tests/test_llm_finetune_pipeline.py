@@ -21,6 +21,7 @@ def make_args(tmp_path, **overrides):
         "task_type": "causal_lm",
         "model_source": "fake",
         "model_name": "tiny-causal-lm",
+        "model_revision": None,
         "dataset_source": "fake",
         "dataset_name": "fake_causal_lm",
         "dataset_config": None,

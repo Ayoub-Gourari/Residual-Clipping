@@ -1,6 +1,7 @@
 task_type: sequence_classification
 model_source: hf
-model_name: albert-base-v2
+model_name: albert/albert-base-v2
+model_revision: 8e2f239
 dataset_source: hf
 dataset_name: glue
 dataset_config: rte

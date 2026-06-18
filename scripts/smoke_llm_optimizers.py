@@ -56,6 +56,7 @@ def make_args(output_dir: Path, optimizer_name: str, clip_threshold: float) -> a
         task_type="sequence_classification",
         model_source="fake",
         model_name="tiny-sequence-classifier",
+        model_revision=None,
         dataset_source="fake",
         dataset_name="fake_rte",
         dataset_config=None,

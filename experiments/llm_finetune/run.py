@@ -22,6 +22,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-type", choices=TASK_TYPES, default="causal_lm")
     parser.add_argument("--model-source", choices=MODEL_SOURCES, default="fake")
     parser.add_argument("--model-name", type=str, default="tiny-causal-lm")
+    parser.add_argument(
+        "--model-revision",
+        type=str,
+        default=None,
+        help="Optional Hugging Face model revision, branch, tag, or commit hash.",
+    )
     parser.add_argument("--dataset-source", choices=DATASET_SOURCES, default="fake")
     parser.add_argument("--dataset-name", type=str, default="fake_causal_lm")
     parser.add_argument("--dataset-config", type=str, default=None)

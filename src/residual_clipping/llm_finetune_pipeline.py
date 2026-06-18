@@ -84,6 +84,8 @@ def normalize_shared_run_attrs(args) -> None:
         args.clip_threshold = math.inf
     if not hasattr(args, "model"):
         args.model = args.model_name
+    if not hasattr(args, "model_revision"):
+        args.model_revision = None
     if not hasattr(args, "dataset"):
         args.dataset = args.dataset_name
 
@@ -348,10 +350,18 @@ def load_model_and_data(args, device: torch.device) -> tuple[nn.Module, FineTune
             return model, data
 
         AutoModelForCausalLM, _, AutoTokenizer = _require_transformers()
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name, local_files_only=not args.download)
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model_name,
+            revision=args.model_revision,
+            local_files_only=not args.download,
+        )
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
-        model = AutoModelForCausalLM.from_pretrained(args.model_name, local_files_only=not args.download).to(device)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name,
+            revision=args.model_revision,
+            local_files_only=not args.download,
+        ).to(device)
 
         if args.dataset_source == "fake":
             data = FineTuneData(
@@ -457,9 +467,14 @@ def load_model_and_data(args, device: torch.device) -> tuple[nn.Module, FineTune
         return model, data
 
     _, AutoModelForSequenceClassification, AutoTokenizer = _require_transformers()
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, local_files_only=not args.download)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name,
+        revision=args.model_revision,
+        local_files_only=not args.download,
+    )
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name,
+        revision=args.model_revision,
         num_labels=args.num_labels,
         local_files_only=not args.download,
     ).to(device)
@@ -928,6 +943,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
     summary = {
         "run_name": run_name,
         "model": args.model_name,
+        "model_revision": args.model_revision,
         "model_source": args.model_source,
         "dataset": args.dataset_name,
         "dataset_config": args.dataset_config,
