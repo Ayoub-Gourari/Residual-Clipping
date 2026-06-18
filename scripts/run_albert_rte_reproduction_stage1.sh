@@ -22,5 +22,5 @@ run_one() {
 }
 
 run_one adamw_uncut inf
-run_one adamw_clip 1.0
-run_one adamw_resclip_euclidean 1.0
+run_one adamw_clip 2.0
+run_one adamw_resclip_euclidean 2.0

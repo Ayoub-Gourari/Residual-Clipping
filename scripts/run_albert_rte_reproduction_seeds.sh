@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_SEEDS=(123 0 1 2 3 4 5 6 7 8)
+DEFAULT_SEEDS=()
+for seed in $(seq 0 99); do
+  DEFAULT_SEEDS+=("${seed}")
+done
 if [[ $# -gt 0 ]]; then
   SEEDS=("$@")
 else
-  # Reduce from the command line with, for example: SEEDS="123 0 1" bash scripts/run_albert_rte_reproduction_seeds.sh
+  # Reduce from the command line with, for example: SEEDS="0 1 2" bash scripts/run_albert_rte_reproduction_seeds.sh
   read -r -a SEEDS <<< "${SEEDS:-${DEFAULT_SEEDS[*]}}"
 fi
 
@@ -30,6 +33,6 @@ run_one() {
 
 for seed in "${SEEDS[@]}"; do
   run_one adamw_uncut inf "${seed}"
-  run_one adamw_clip 1.0 "${seed}"
-  run_one adamw_resclip_euclidean 1.0 "${seed}"
+  run_one adamw_clip 2.0 "${seed}"
+  run_one adamw_resclip_euclidean 2.0 "${seed}"
 done

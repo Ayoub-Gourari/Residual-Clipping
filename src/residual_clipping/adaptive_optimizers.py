@@ -17,7 +17,7 @@ ADAPTIVE_OPTIMIZER_NAMES = (
     "adamw_resclip_metric",
 )
 ADAPTIVE_OPTIMIZER_MODES = ADAPTIVE_OPTIMIZER_NAMES
-CLIPPING_SCOPES = ("global", "local", "elementwise")
+CLIPPING_SCOPES = ("global", "local", "layerwise", "elementwise")
 _EPS_NORM = 1e-12
 
 
@@ -224,7 +224,7 @@ class AdaptiveAdamW:
             scope = str(group["clipping_scope"])
             group_values = [values[index] for index in indices]
 
-            if scope == "global":
+            if scope in {"global", "layerwise"}:
                 group_norm = _safe_norm(group_values)
                 scale = _scale_from_norm(group_norm, threshold)
                 for index in indices:
@@ -258,7 +258,7 @@ class AdaptiveAdamW:
             scope = str(group["clipping_scope"])
             group_metric_values = [metric_residuals[index] for index in indices]
 
-            if scope == "global":
+            if scope in {"global", "layerwise"}:
                 group_metric_norm = _safe_norm(group_metric_values)
                 scale = _scale_from_norm(group_metric_norm, threshold)
                 for index in indices:

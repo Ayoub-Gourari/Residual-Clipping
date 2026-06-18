@@ -15,7 +15,7 @@ warmup_ratio: 0.1
 classifier_dropout: 0.0
 val_check_interval: 12
 clipping_scope: local
-clip_threshold: 1.0
+clip_threshold: 2.0
 save_checkpoints: false
 save_final_model: false
 wandb_log_model: false

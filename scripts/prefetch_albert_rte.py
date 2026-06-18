@@ -97,7 +97,7 @@ def main() -> None:
             revision=args.model_revision,
             cache_dir=str(transformers_cache),
         )
-        tokenizer("A first sentence.", "A second sentence.", truncation=True, max_length=128)
+        tokenizer("A first sentence.", "A second sentence.", truncation=True, max_length=512)
 
         print(f"Downloading model weights: {args.model_checkpoint}@{args.model_revision}", flush=True)
         AutoModelForSequenceClassification.from_pretrained(

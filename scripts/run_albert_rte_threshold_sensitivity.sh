@@ -6,7 +6,7 @@ MODEL_CHECKPOINT="${MODEL_CHECKPOINT:-albert-base-v2}"
 MODEL_REVISION="${MODEL_REVISION:-8e2f239}"
 HF_CACHE_DIR="${HF_CACHE_DIR:-${HF_HOME:-${HOME}/.cache/huggingface}}"
 SEEDS=(123 0 1)
-THRESHOLDS=(0.1 0.3 1.0 3.0 10.0)
+THRESHOLDS=(0.1 0.2 0.5 1.0 2.0 5.0 10.0)
 
 COMMON=(
   python train.py
@@ -21,7 +21,8 @@ COMMON=(
   --betas 0.9,0.999
   --eps 1e-6
   --weight_decay 0.0
-  --correct_bias false
+  --correct_bias true
+  --warmup_ratio 0.1
   --classifier_dropout 0.0
   --val_check_interval 12
   --clipping_scope local

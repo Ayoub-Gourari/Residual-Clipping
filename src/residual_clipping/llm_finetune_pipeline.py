@@ -743,6 +743,49 @@ def scheduled_learning_rate(base_lr: float, step: int, total_steps: int, warmup_
     return base_lr * min(1.0, float(step) / float(warmup_steps))
 
 
+def _layerwise_group_name(parameter_name: str) -> str:
+    """Best-effort module grouping for true layer-wise clipping experiments."""
+    albert_layer = re.match(
+        r"^(albert\.encoder\.albert_layer_groups\.\d+\.albert_layers\.\d+)",
+        parameter_name,
+    )
+    if albert_layer is not None:
+        return albert_layer.group(1)
+    for prefix in (
+        "albert.embeddings",
+        "albert.encoder.embedding_hidden_mapping_in",
+        "albert.pooler",
+        "classifier",
+        "embedding",
+    ):
+        if parameter_name.startswith(f"{prefix}.") or parameter_name == prefix:
+            return prefix
+    if "." in parameter_name:
+        return parameter_name.rsplit(".", maxsplit=1)[0]
+    return parameter_name
+
+
+def optimizer_parameters(
+    model: nn.Module,
+    *,
+    clipping_scope: str,
+) -> tuple[list[nn.Parameter], Iterable[nn.Parameter] | list[dict[str, Any]]]:
+    flat_params = [param for param in model.parameters() if param.requires_grad]
+    if clipping_scope != "layerwise":
+        return flat_params, flat_params
+
+    groups: dict[str, list[nn.Parameter]] = {}
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        groups.setdefault(_layerwise_group_name(name), []).append(param)
+
+    return flat_params, [
+        {"params": params, "clipping_scope": "layerwise", "layer_name": layer_name}
+        for layer_name, params in groups.items()
+    ]
+
+
 def train_one_epoch(
     *,
     args,
@@ -757,9 +800,9 @@ def train_one_epoch(
     run_dir: Path,
     device: torch.device,
     total_training_steps: int,
+    params: list[nn.Parameter],
 ) -> int:
     model.train()
-    params = [param for param in model.parameters() if param.requires_grad]
     if task_type == "causal_lm":
         assert isinstance(train_data, torch.Tensor)
         batches = (
@@ -894,9 +937,9 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         batch_size=args.batch_size,
         max_train_batches=args.max_train_batches,
     ) * args.epochs
-    params = [param for param in model.parameters() if param.requires_grad]
+    params, optimizer_param_groups = optimizer_parameters(model, clipping_scope=args.clipping_scope)
     optimizer = AdaptiveAdamW(
-        params,
+        optimizer_param_groups,
         optimizer_name=args.optimizer_name,
         beta1=args.adam_beta1,
         beta2=args.adam_beta2,
@@ -984,6 +1027,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             run_dir=run_dir,
             device=device,
             total_training_steps=total_training_steps,
+            params=params,
         )
         validation = evaluate(
             model,
@@ -1084,6 +1128,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         "test_accuracy": test.get("accuracy"),
         "global_step": global_step,
         "epochs": args.epochs,
+        "seed": args.seed,
         "lr": args.lr,
         "adam_beta1": args.adam_beta1,
         "adam_beta2": args.adam_beta2,

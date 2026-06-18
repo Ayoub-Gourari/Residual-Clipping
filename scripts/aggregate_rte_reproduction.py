@@ -57,6 +57,8 @@ def records_from_local(input_dir: Path) -> list[dict[str, Any]]:
             records.append(
                 {
                     "optimizer_name": summary.get("optimizer_name"),
+                    "clip_threshold": summary.get("clip_threshold"),
+                    "clipping_scope": summary.get("clipping_scope"),
                     "seed": summary.get("seed"),
                     "global_step": int(step or 0),
                     "val_loss": None if val_loss is None else float(val_loss),
@@ -81,6 +83,8 @@ def records_from_csv(paths: list[Path]) -> list[dict[str, Any]]:
             records.append(
                 {
                     "optimizer_name": _first_available(row_dict, ["optimizer_name", "run/optimizer_name"]),
+                    "clip_threshold": _first_available(row_dict, ["clip_threshold", "run/clip_threshold"]),
+                    "clipping_scope": _first_available(row_dict, ["clipping_scope", "run/clipping_scope"]),
                     "seed": _first_available(row_dict, ["seed", "run/seed"]),
                     "global_step": int(0 if pd.isna(step) else step),
                     "val_loss": None if pd.isna(val_loss) else float(val_loss),
@@ -94,12 +98,14 @@ def records_from_csv(paths: list[Path]) -> list[dict[str, Any]]:
 def summarize(frame: pd.DataFrame, value_col: str) -> pd.DataFrame:
     filtered = frame.dropna(subset=[value_col]).copy()
     if filtered.empty:
-        return pd.DataFrame(columns=["optimizer_name", "global_step", "median", "q25", "q75", "run_count"])
-    grouped = filtered.groupby(["optimizer_name", "global_step"], dropna=False)[value_col]
+        return pd.DataFrame(
+            columns=["optimizer_name", "clip_threshold", "clipping_scope", "global_step", "median", "q05", "q95", "run_count"]
+        )
+    grouped = filtered.groupby(["optimizer_name", "clip_threshold", "clipping_scope", "global_step"], dropna=False)[value_col]
     return grouped.agg(
         median="median",
-        q25=lambda values: values.quantile(0.25),
-        q75=lambda values: values.quantile(0.75),
+        q05=lambda values: values.quantile(0.05),
+        q95=lambda values: values.quantile(0.95),
         run_count="count",
     ).reset_index()
 
@@ -118,14 +124,19 @@ def write_plot(summary: pd.DataFrame, *, value_name: str, output_path: Path) -> 
 
     try:
         fig, axis = plt.subplots(figsize=(7, 4))
-        for optimizer_name, group in summary.groupby("optimizer_name", dropna=False):
+        for label_values, group in summary.groupby(["optimizer_name", "clip_threshold"], dropna=False):
+            optimizer_name, clip_threshold = label_values
             group = group.sort_values("global_step")
             x_values = pd.to_numeric(group["global_step"], errors="coerce").to_numpy(dtype=float)
             median = pd.to_numeric(group["median"], errors="coerce").to_numpy(dtype=float)
-            q25 = pd.to_numeric(group["q25"], errors="coerce").to_numpy(dtype=float)
-            q75 = pd.to_numeric(group["q75"], errors="coerce").to_numpy(dtype=float)
-            axis.plot(x_values, median, label=str(optimizer_name))
-            axis.fill_between(x_values, q25, q75, alpha=0.2)
+            q05 = pd.to_numeric(group["q05"], errors="coerce").to_numpy(dtype=float)
+            q95 = pd.to_numeric(group["q95"], errors="coerce").to_numpy(dtype=float)
+            if pd.isna(clip_threshold):
+                label = str(optimizer_name)
+            else:
+                label = f"{optimizer_name}, C={clip_threshold}"
+            axis.plot(x_values, median, label=label)
+            axis.fill_between(x_values, q05, q95, alpha=0.2)
         axis.set_xlabel("Validation step")
         axis.set_ylabel(value_name)
         axis.legend(frameon=False)
