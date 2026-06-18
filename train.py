@@ -58,6 +58,7 @@ ALIASES = {
     "--wandb_job_type": "--wandb-job-type",
     "--wandb_tags": "--wandb-tags",
     "--wandb_notes": "--wandb-notes",
+    "--hf_cache_dir": "--hf-cache-dir",
     "--adam_beta1": "--adam-beta1",
     "--adam_beta2": "--adam-beta2",
     "--adam_eps": "--adam-eps",
@@ -130,6 +131,8 @@ RTE_DEFAULTS = [
     "disabled",
     "--output-dir",
     "outputs/albert_rte_resclip",
+    "--hf-cache-dir",
+    "~/.cache/huggingface",
 ]
 
 

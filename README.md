@@ -148,6 +148,16 @@ export WANDB_DIR=/path/to/wandb
 export WANDB_CACHE_DIR=/path/to/wandb/cache
 ```
 
+Warm the ALBERT/RTE cache once before launching runs from several SSH sessions:
+
+```bash
+python scripts/prefetch_albert_rte.py --cache-dir "$HF_HOME"
+```
+
+Then reuse the same cache from every session. Add `--no-download` after
+prefetching if you want training runs to fail fast instead of touching the
+network.
+
 Smoke-test the optimizer implementation:
 
 ```bash
@@ -157,13 +167,13 @@ python scripts/smoke_test_optimizers.py
 Run the four stage-1 RTE comparisons:
 
 ```bash
-python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_uncut --clip_threshold inf --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+python train.py --task rte --model_checkpoint albert-base-v2 --hf-cache-dir "$HF_HOME" --no-download --optimizer_name adamw_uncut --clip_threshold inf --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
 
-python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_clip --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+python train.py --task rte --model_checkpoint albert-base-v2 --hf-cache-dir "$HF_HOME" --no-download --optimizer_name adamw_clip --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
 
-python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_resclip_euclidean --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+python train.py --task rte --model_checkpoint albert-base-v2 --hf-cache-dir "$HF_HOME" --no-download --optimizer_name adamw_resclip_euclidean --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
 
-python train.py --task rte --model_checkpoint albert-base-v2 --optimizer_name adamw_resclip_metric --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
+python train.py --task rte --model_checkpoint albert-base-v2 --hf-cache-dir "$HF_HOME" --no-download --optimizer_name adamw_resclip_metric --clipping_scope local --clip_threshold 1.0 --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
 ```
 
 Scripted runs:

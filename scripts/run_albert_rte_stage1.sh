@@ -4,12 +4,14 @@ set -euo pipefail
 EXTRA_ARGS=("$@")
 MODEL_CHECKPOINT="${MODEL_CHECKPOINT:-albert-base-v2}"
 MODEL_REVISION="${MODEL_REVISION:-8e2f239}"
+HF_CACHE_DIR="${HF_CACHE_DIR:-${HF_HOME:-${HOME}/.cache/huggingface}}"
 
 COMMON=(
   python train.py
   --task rte
   --model_checkpoint "${MODEL_CHECKPOINT}"
   --model-revision "${MODEL_REVISION}"
+  --hf-cache-dir "${HF_CACHE_DIR}"
   --max_epochs 1
   --batch_size 8
   --eval_batch_size 8

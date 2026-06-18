@@ -49,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train-file", type=Path, default=None)
     parser.add_argument("--validation-file", type=Path, default=None)
     parser.add_argument("--data-dir", type=Path, default=Path("datasets"))
+    parser.add_argument(
+        "--hf-cache-dir",
+        type=Path,
+        default=None,
+        help="Shared Hugging Face cache root for model/tokenizer and dataset downloads.",
+    )
     parser.add_argument("--download", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--optimizer-name", choices=ADAPTIVE_OPTIMIZER_NAMES, required=True)
     parser.add_argument("--optimizer-mode", dest="optimizer_name", choices=ADAPTIVE_OPTIMIZER_NAMES, help=argparse.SUPPRESS)

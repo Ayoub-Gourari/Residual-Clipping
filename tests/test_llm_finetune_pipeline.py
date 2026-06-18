@@ -36,6 +36,7 @@ def make_args(tmp_path, **overrides):
         "train_file": None,
         "validation_file": None,
         "data_dir": tmp_path / "datasets",
+        "hf_cache_dir": None,
         "download": False,
         "optimizer_name": "adamw_uncut",
         "clip_threshold": float("inf"),

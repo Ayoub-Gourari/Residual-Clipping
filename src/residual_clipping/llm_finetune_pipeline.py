@@ -55,6 +55,41 @@ def _tag(value: str) -> str:
     return sanitized or "unnamed"
 
 
+def _expanded_optional_path(value: str | Path | None) -> Path | None:
+    if value is None:
+        return None
+    return Path(value).expanduser()
+
+
+def _hf_cache_root(args) -> Path | None:
+    return _expanded_optional_path(getattr(args, "hf_cache_dir", None))
+
+
+def _transformers_cache_dir(args) -> str | None:
+    root = _hf_cache_root(args)
+    if root is None:
+        return None
+    return str(root / "transformers")
+
+
+def _datasets_cache_dir(args) -> str | None:
+    root = _hf_cache_root(args)
+    if root is not None:
+        return str(root / "datasets")
+    return str(args.data_dir) if getattr(args, "data_dir", None) is not None else None
+
+
+def _hf_from_pretrained_kwargs(args) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "revision": args.model_revision,
+        "local_files_only": not args.download,
+    }
+    cache_dir = _transformers_cache_dir(args)
+    if cache_dir is not None:
+        kwargs["cache_dir"] = cache_dir
+    return kwargs
+
+
 def resolved_run_name(args) -> str:
     if args.run_name is not None:
         run_name = args.run_name
@@ -91,6 +126,8 @@ def normalize_shared_run_attrs(args) -> None:
         args.classifier_dropout = getattr(args, "dropout", 0.0)
     if not hasattr(args, "val_check_interval"):
         args.val_check_interval = None
+    if not hasattr(args, "hf_cache_dir"):
+        args.hf_cache_dir = None
     if not hasattr(args, "save_checkpoints"):
         args.save_checkpoints = False
     if not hasattr(args, "save_final_model"):
@@ -240,7 +277,7 @@ def _texts_from_hf_dataset(args, split: str) -> list[str]:
         args.dataset_name,
         args.dataset_config,
         split=split,
-        cache_dir=str(args.data_dir),
+        cache_dir=_datasets_cache_dir(args),
     )
     if args.text_column not in dataset.column_names:
         raise ValueError(
@@ -287,7 +324,7 @@ def _classification_tensors_from_hf_dataset(
         args.dataset_name,
         args.dataset_config,
         split=split,
-        cache_dir=str(args.data_dir),
+        cache_dir=_datasets_cache_dir(args),
     )
     required_columns = [args.sentence1_column, args.label_column]
     if args.sentence2_column:
@@ -365,18 +402,10 @@ def load_model_and_data(args, device: torch.device) -> tuple[nn.Module, FineTune
             return model, data
 
         AutoModelForCausalLM, _, AutoTokenizer = _require_transformers()
-        tokenizer = AutoTokenizer.from_pretrained(
-            args.model_name,
-            revision=args.model_revision,
-            local_files_only=not args.download,
-        )
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name, **_hf_from_pretrained_kwargs(args))
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
-        model = AutoModelForCausalLM.from_pretrained(
-            args.model_name,
-            revision=args.model_revision,
-            local_files_only=not args.download,
-        ).to(device)
+        model = AutoModelForCausalLM.from_pretrained(args.model_name, **_hf_from_pretrained_kwargs(args)).to(device)
 
         if args.dataset_source == "fake":
             data = FineTuneData(
@@ -482,17 +511,12 @@ def load_model_and_data(args, device: torch.device) -> tuple[nn.Module, FineTune
         return model, data
 
     _, AutoModelForSequenceClassification, AutoTokenizer = _require_transformers()
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name,
-        revision=args.model_revision,
-        local_files_only=not args.download,
-    )
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, **_hf_from_pretrained_kwargs(args))
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name,
-        revision=args.model_revision,
         num_labels=args.num_labels,
         classifier_dropout_prob=args.classifier_dropout,
-        local_files_only=not args.download,
+        **_hf_from_pretrained_kwargs(args),
     ).to(device)
 
     if args.dataset_source == "fake":

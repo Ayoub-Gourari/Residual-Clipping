@@ -74,6 +74,7 @@ def make_args(output_dir: Path, optimizer_name: str, clip_threshold: float) -> a
         train_file=None,
         validation_file=None,
         data_dir=output_dir / "datasets",
+        hf_cache_dir=None,
         download=False,
         optimizer_name=optimizer_name,
         seed=0,
