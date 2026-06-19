@@ -44,10 +44,11 @@ run_one adamw_uncut inf
 run_one adamw_clip 2.0
 run_one adamw_resclip_euclidean 2.0
 run_one adamw_resclip_euclidean_vclip 2.0
+run_one adamw_resclip_euclidean_vclip_varalpha 2.0
 run_one adamw_resclip_metric 2.0
 
 if [[ "${RUN_OPTIONAL_THRESHOLDS:-0}" == "1" ]]; then
-  for optimizer_name in adamw_clip adamw_resclip_euclidean adamw_resclip_euclidean_vclip adamw_resclip_metric; do
+  for optimizer_name in adamw_clip adamw_resclip_euclidean adamw_resclip_euclidean_vclip adamw_resclip_euclidean_vclip_varalpha adamw_resclip_metric; do
     for clip_threshold in 0.1 0.2 0.5 1.0 5.0 10.0; do
       run_one "${optimizer_name}" "${clip_threshold}"
     done

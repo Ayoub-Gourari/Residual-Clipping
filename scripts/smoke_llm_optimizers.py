@@ -30,6 +30,8 @@ REQUIRED_LOG_KEYS = {
     "train/metric_residual_global_norm",
     "train/v_pseudo_grad_global_norm",
     "train/v_clipping_scale",
+    "train/effective_beta_mean",
+    "train/first_moment_bias_mass_mean",
     "train/update_global_norm",
     "train/adam_m_global_norm",
     "train/adam_v_global_norm",

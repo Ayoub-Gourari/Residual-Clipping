@@ -32,6 +32,8 @@ REQUIRED_KEYS = {
     "metric_residual_global_norm",
     "v_pseudo_grad_global_norm",
     "v_clipping_scale",
+    "effective_beta_mean",
+    "first_moment_bias_mass_mean",
     "update_global_norm",
     "adam_m_global_norm",
     "adam_v_global_norm",

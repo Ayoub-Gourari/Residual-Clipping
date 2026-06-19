@@ -15,6 +15,7 @@ ADAPTIVE_OPTIMIZER_NAMES = (
     "adamw_clip",
     "adamw_resclip_euclidean",
     "adamw_resclip_euclidean_vclip",
+    "adamw_resclip_euclidean_vclip_varalpha",
     "adamw_resclip_metric",
 )
 ADAPTIVE_OPTIMIZER_MODES = ADAPTIVE_OPTIMIZER_NAMES
@@ -90,6 +91,16 @@ def _elementwise_clip(tensor: torch.Tensor, threshold: float) -> torch.Tensor:
     if not math.isfinite(threshold):
         return tensor.detach().clone()
     return tensor.clamp(min=-float(threshold), max=float(threshold))
+
+
+def _mean_tensor_value(tensor: torch.Tensor) -> float:
+    return float(tensor.detach().mean().item())
+
+
+def _mean_float(values: Sequence[float]) -> float:
+    if not values:
+        return 0.0
+    return float(sum(values) / len(values))
 
 
 def _normalize_param_groups(
@@ -170,6 +181,7 @@ class AdaptiveAdamW:
         self.step_count = 0
         self.exp_avg = [torch.zeros_like(param) for param in self.params]
         self.exp_avg_sq = [torch.zeros_like(param) for param in self.params]
+        self.exp_avg_bias_mass = [torch.zeros_like(param) for param in self.params]
 
     @property
     def mode(self) -> str:
@@ -185,6 +197,7 @@ class AdaptiveAdamW:
             ],
             "exp_avg": [value.detach().cpu() for value in self.exp_avg],
             "exp_avg_sq": [value.detach().cpu() for value in self.exp_avg_sq],
+            "exp_avg_bias_mass": [value.detach().cpu() for value in self.exp_avg_bias_mass],
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
@@ -193,6 +206,11 @@ class AdaptiveAdamW:
         self.exp_avg_sq = [
             tensor.to(param.device) for tensor, param in zip(state_dict["exp_avg_sq"], self.params)
         ]
+        bias_mass_values = state_dict.get("exp_avg_bias_mass")
+        if bias_mass_values is not None:
+            self.exp_avg_bias_mass = [
+                tensor.to(param.device) for tensor, param in zip(bias_mass_values, self.params)
+            ]
         group_options = state_dict.get("param_groups")
         if group_options is not None and len(group_options) == len(self.param_groups):
             for group, options in zip(self.param_groups, group_options):
@@ -216,8 +234,12 @@ class AdaptiveAdamW:
                 yield group, param, values[index], self.exp_avg[index], self.exp_avg_sq[index]
                 index += 1
 
-    def _clip_values(self, values: Sequence[torch.Tensor]) -> tuple[list[torch.Tensor], float, float]:
+    def _clip_values_with_scales(
+        self,
+        values: Sequence[torch.Tensor],
+    ) -> tuple[list[torch.Tensor], float, float, list[torch.Tensor]]:
         clipped: list[torch.Tensor | None] = [None] * len(values)
+        scales: list[torch.Tensor | None] = [None] * len(values)
         before_norm = _safe_norm(values)
 
         for group, indices in self._group_indices():
@@ -230,19 +252,36 @@ class AdaptiveAdamW:
                 scale = _scale_from_norm(group_norm, threshold)
                 for index in indices:
                     clipped[index] = values[index] * scale
+                    scales[index] = torch.full_like(values[index], scale)
             elif scope == "local":
                 for index in indices:
                     scale = _scale_from_norm(float(torch.linalg.vector_norm(values[index]).item()), threshold)
                     clipped[index] = values[index] * scale
+                    scales[index] = torch.full_like(values[index], scale)
             elif scope == "elementwise":
                 for index in indices:
-                    clipped[index] = _elementwise_clip(values[index], threshold)
+                    if math.isfinite(threshold):
+                        abs_value = values[index].abs()
+                        scale_tensor = torch.where(
+                            abs_value > float(threshold),
+                            torch.full_like(values[index], float(threshold)) / (abs_value + _EPS_NORM),
+                            torch.ones_like(values[index]),
+                        )
+                    else:
+                        scale_tensor = torch.ones_like(values[index])
+                    clipped[index] = values[index] * scale_tensor
+                    scales[index] = scale_tensor
             else:
                 raise ValueError(f"Unsupported clipping_scope={scope!r}.")
 
         materialized = [value for value in clipped if value is not None]
+        materialized_scales = [value for value in scales if value is not None]
         after_norm = _safe_norm(materialized)
-        return materialized, after_norm, _norm_ratio(after_norm, before_norm)
+        return materialized, after_norm, _norm_ratio(after_norm, before_norm), materialized_scales
+
+    def _clip_values(self, values: Sequence[torch.Tensor]) -> tuple[list[torch.Tensor], float, float]:
+        clipped, after_norm, scale, _scales = self._clip_values_with_scales(values)
+        return clipped, after_norm, scale
 
     def _clip_metric_residuals(
         self,
@@ -316,7 +355,11 @@ class AdaptiveAdamW:
         residuals = [grad - center for grad, center in zip(grads, centers)]
         residual_norm = _safe_norm(residuals)
 
-        if self.optimizer_name in {"adamw_resclip_euclidean", "adamw_resclip_euclidean_vclip"} or next_step == 1:
+        if self.optimizer_name in {
+            "adamw_resclip_euclidean",
+            "adamw_resclip_euclidean_vclip",
+            "adamw_resclip_euclidean_vclip_varalpha",
+        } or next_step == 1:
             clipped_residuals, _clipped_norm, scale = self._clip_values(residuals)
             pseudo = [center + residual for center, residual in zip(centers, clipped_residuals)]
             return pseudo, {
@@ -374,7 +417,23 @@ class AdaptiveAdamW:
         ]
         next_step = self.step_count + 1
         pseudo_grads, diagnostics = self._pseudo_gradients(materialized_grads, next_step=next_step)
-        if self.optimizer_name == "adamw_resclip_euclidean_vclip":
+        variable_alpha_residual = self.optimizer_name == "adamw_resclip_euclidean_vclip_varalpha"
+        residual_scales: list[torch.Tensor] | None = None
+        if variable_alpha_residual:
+            centers = [value.detach().clone() for value in self.exp_avg]
+            residuals = [grad - center for grad, center in zip(materialized_grads, centers)]
+            clipped_residuals, _clipped_norm, scale, residual_scales = self._clip_values_with_scales(residuals)
+            pseudo_grads = [center + residual for center, residual in zip(centers, clipped_residuals)]
+            diagnostics.update(
+                {
+                    "pseudo_grad_global_norm": _safe_norm(pseudo_grads),
+                    "clipping_scale": scale,
+                    "residual_global_norm": _safe_norm(residuals),
+                    "metric_residual_global_norm": 0.0,
+                }
+            )
+
+        if self.optimizer_name in {"adamw_resclip_euclidean_vclip", "adamw_resclip_euclidean_vclip_varalpha"}:
             second_moment_grads, _second_moment_norm, v_scale = self._clip_values(materialized_grads)
         else:
             second_moment_grads = pseudo_grads
@@ -382,6 +441,8 @@ class AdaptiveAdamW:
         diagnostics["v_pseudo_grad_global_norm"] = _safe_norm(second_moment_grads)
         diagnostics["v_clipping_scale"] = v_scale
         updates: list[torch.Tensor] = []
+        effective_beta_values: list[float] = []
+        bias_mass_values: list[float] = []
 
         with torch.no_grad():
             for index, (group, param, pseudo_grad, exp_avg, exp_avg_sq) in enumerate(
@@ -394,17 +455,32 @@ class AdaptiveAdamW:
                 weight_decay = float(group["weight_decay"])
                 correct_bias = bool(group["correct_bias"])
 
-                exp_avg.mul_(beta1).add_(pseudo_grad, alpha=1.0 - beta1)
+                bias_mass = self.exp_avg_bias_mass[index]
+                if variable_alpha_residual:
+                    assert residual_scales is not None
+                    alpha = residual_scales[index] * (1.0 - beta1)
+                    exp_avg.add_((materialized_grads[index] - exp_avg) * alpha)
+                    bias_mass.add_((1.0 - bias_mass) * alpha)
+                    numerator = exp_avg / bias_mass.clamp_min(_EPS_NORM) if correct_bias else exp_avg
+                    effective_beta_values.append(_mean_tensor_value(1.0 - alpha))
+                else:
+                    exp_avg.mul_(beta1).add_(pseudo_grad, alpha=1.0 - beta1)
+                    bias_mass.mul_(beta1).add_(1.0 - beta1)
+                    if correct_bias:
+                        bias_correction1 = max(1.0 - beta1 ** next_step, _EPS_NORM)
+                        numerator = exp_avg / bias_correction1
+                    else:
+                        numerator = exp_avg
+                    effective_beta_values.append(beta1)
+                bias_mass_values.append(_mean_tensor_value(bias_mass))
+
                 second_moment_grad = second_moment_grads[index]
                 exp_avg_sq.mul_(beta2).addcmul_(second_moment_grad, second_moment_grad, value=1.0 - beta2)
 
                 if correct_bias:
-                    bias_correction1 = max(1.0 - beta1 ** next_step, _EPS_NORM)
                     bias_correction2 = max(1.0 - beta2 ** next_step, _EPS_NORM)
-                    numerator = exp_avg / bias_correction1
                     denominator = (exp_avg_sq / bias_correction2).sqrt().add(eps)
                 else:
-                    numerator = exp_avg
                     denominator = exp_avg_sq.sqrt().add(eps)
 
                 update = numerator / denominator
@@ -429,6 +505,8 @@ class AdaptiveAdamW:
                 "clip_threshold": threshold,
                 "clipping_scope": scopes[0] if len(scopes) == 1 else "mixed",
                 "correct_bias": float(next(iter(correct_bias_values))) if len(correct_bias_values) == 1 else -1.0,
+                "effective_beta_mean": _mean_float(effective_beta_values),
+                "first_moment_bias_mass_mean": _mean_float(bias_mass_values),
                 "update_global_norm": update_norm,
                 "adam_m_global_norm": _safe_norm(self.exp_avg),
                 "adam_v_global_norm": _safe_norm(self.exp_avg_sq),
