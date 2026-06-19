@@ -17,6 +17,7 @@ ADAPTIVE_OPTIMIZER_NAMES = (
     "adamw_resclip_euclidean_vclip",
     "adamw_resclip_euclidean_vclip_varalpha",
     "adamw_resclip_metric",
+    "adamw_resclip_metric_vclip",
 )
 ADAPTIVE_OPTIMIZER_MODES = ADAPTIVE_OPTIMIZER_NAMES
 CLIPPING_SCOPES = ("global", "local", "layerwise", "elementwise")
@@ -399,6 +400,113 @@ class AdaptiveAdamW:
             "metric_residual_global_norm": metric_norm,
         }
 
+    def _step_metric_vclip(
+        self,
+        materialized_grads: list[torch.Tensor],
+        lr: float,
+        *,
+        next_step: int,
+        collect_diagnostics: bool,
+    ) -> dict[str, float | str]:
+        grad_norm = _safe_norm(materialized_grads)
+        centers = [value.detach().clone() for value in self.exp_avg]
+        residuals = [grad - center for grad, center in zip(materialized_grads, centers)]
+        residual_norm = _safe_norm(residuals)
+        second_moment_grads, _second_moment_norm, v_scale = self._clip_values(materialized_grads)
+
+        denominators: list[torch.Tensor | None] = [None] * len(self.params)
+        with torch.no_grad():
+            for index, (group, _param, second_moment_grad, _exp_avg, exp_avg_sq) in enumerate(
+                self._flat_group_items(second_moment_grads)
+            ):
+                beta2 = float(group["beta2"])
+                eps = float(group["eps"])
+                correct_bias = bool(group["correct_bias"])
+
+                exp_avg_sq.mul_(beta2).addcmul_(second_moment_grad, second_moment_grad, value=1.0 - beta2)
+                if correct_bias:
+                    bias_correction2 = max(1.0 - beta2 ** next_step, _EPS_NORM)
+                    denominator = (exp_avg_sq / bias_correction2).sqrt().add(eps)
+                else:
+                    denominator = exp_avg_sq.sqrt().add(eps)
+                denominators[index] = denominator
+
+        if any(value is None for value in denominators):
+            raise RuntimeError("Failed to materialize Adam denominators for metric residual clipping.")
+        materialized_denominators = [value for value in denominators if value is not None]
+        metric_residuals = [
+            residual / denominator for residual, denominator in zip(residuals, materialized_denominators)
+        ]
+        clipped_residuals, metric_norm, scale = self._clip_metric_residuals(
+            residuals,
+            metric_residuals,
+            materialized_denominators,
+        )
+        pseudo_grads = [center + residual for center, residual in zip(centers, clipped_residuals)]
+
+        updates: list[torch.Tensor] = []
+        effective_beta_values: list[float] = []
+        bias_mass_values: list[float] = []
+
+        with torch.no_grad():
+            for index, (group, param, clipped_residual, exp_avg, _exp_avg_sq) in enumerate(
+                self._flat_group_items(clipped_residuals)
+            ):
+                beta1 = float(group["beta1"])
+                group_lr = lr if group.get("lr") is None else float(group["lr"])
+                weight_decay = float(group["weight_decay"])
+                correct_bias = bool(group["correct_bias"])
+
+                exp_avg.add_(clipped_residual, alpha=1.0 - beta1)
+                bias_mass = self.exp_avg_bias_mass[index]
+                bias_mass.mul_(beta1).add_(1.0 - beta1)
+                if correct_bias:
+                    bias_correction1 = max(1.0 - beta1 ** next_step, _EPS_NORM)
+                    numerator = exp_avg / bias_correction1
+                else:
+                    numerator = exp_avg
+                effective_beta_values.append(beta1)
+                bias_mass_values.append(_mean_tensor_value(bias_mass))
+
+                update = numerator / materialized_denominators[index]
+                updates.append(update.detach().clone())
+
+                if weight_decay != 0.0:
+                    param.mul_(1.0 - group_lr * weight_decay)
+                param.add_(update, alpha=-group_lr)
+
+        self.step_count = next_step
+
+        if not collect_diagnostics:
+            return {}
+
+        update_norm = _safe_norm(updates)
+        threshold = max(float(group["clip_threshold"]) for group in self.param_groups)
+        scopes = sorted({str(group["clipping_scope"]) for group in self.param_groups})
+        correct_bias_values = {bool(group["correct_bias"]) for group in self.param_groups}
+        return {
+            "grad_global_norm": grad_norm,
+            "pseudo_grad_global_norm": _safe_norm(pseudo_grads),
+            "clipping_scale": scale,
+            "residual_global_norm": residual_norm,
+            "metric_residual_global_norm": metric_norm,
+            "v_pseudo_grad_global_norm": _safe_norm(second_moment_grads),
+            "v_clipping_scale": v_scale,
+            "optimizer_name": self.optimizer_name,
+            "clip_threshold": threshold,
+            "clipping_scope": scopes[0] if len(scopes) == 1 else "mixed",
+            "correct_bias": float(next(iter(correct_bias_values))) if len(correct_bias_values) == 1 else -1.0,
+            "effective_beta_mean": _mean_float(effective_beta_values),
+            "first_moment_bias_mass_mean": _mean_float(bias_mass_values),
+            "update_global_norm": update_norm,
+            "adam_m_global_norm": _safe_norm(self.exp_avg),
+            "adam_v_global_norm": _safe_norm(self.exp_avg_sq),
+            "learning_rate": lr,
+            "adam_step_norm": lr * update_norm,
+            "adam_update_norm": update_norm,
+            "grad_norm": grad_norm,
+        }
+
     def step(
         self,
         grads: Sequence[torch.Tensor | None],
@@ -416,6 +524,14 @@ class AdaptiveAdamW:
             for param, grad in zip(self.params, grads)
         ]
         next_step = self.step_count + 1
+        if self.optimizer_name == "adamw_resclip_metric_vclip":
+            return self._step_metric_vclip(
+                materialized_grads,
+                lr,
+                next_step=next_step,
+                collect_diagnostics=collect_diagnostics,
+            )
+
         pseudo_grads, diagnostics = self._pseudo_gradients(materialized_grads, next_step=next_step)
         variable_alpha_residual = self.optimizer_name == "adamw_resclip_euclidean_vclip_varalpha"
         residual_scales: list[torch.Tensor] | None = None

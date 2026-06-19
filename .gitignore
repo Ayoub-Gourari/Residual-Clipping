@@ -27,3 +27,4 @@ figures_smoke_quadratics_objective_split/
 *.ckpt
 .DS_Store
 TODO.local.md
+ADAPTIVE_RESCLIP_BRAINSTORM.local.md

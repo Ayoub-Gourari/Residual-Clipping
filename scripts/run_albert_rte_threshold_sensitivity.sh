@@ -45,7 +45,7 @@ run_one() {
 
 for seed in "${SEEDS[@]}"; do
   run_one adamw_uncut inf "${seed}"
-  for optimizer_name in adamw_clip adamw_resclip_euclidean adamw_resclip_euclidean_vclip adamw_resclip_euclidean_vclip_varalpha adamw_resclip_metric; do
+  for optimizer_name in adamw_clip adamw_resclip_euclidean adamw_resclip_euclidean_vclip adamw_resclip_euclidean_vclip_varalpha adamw_resclip_metric adamw_resclip_metric_vclip; do
     for clip_threshold in "${THRESHOLDS[@]}"; do
       run_one "${optimizer_name}" "${clip_threshold}" "${seed}"
     done
