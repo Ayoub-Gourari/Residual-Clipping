@@ -31,6 +31,7 @@ optimizer_names:
   - adamw_uncut
   - adamw_clip
   - adamw_resclip_euclidean
+  - adamw_resclip_euclidean_vclip
   - adamw_resclip_metric
 clip_thresholds:
   - 2.0

@@ -28,6 +28,8 @@ REQUIRED_LOG_KEYS = {
     "train/clipping_scale",
     "train/residual_global_norm",
     "train/metric_residual_global_norm",
+    "train/v_pseudo_grad_global_norm",
+    "train/v_clipping_scale",
     "train/update_global_norm",
     "train/adam_m_global_norm",
     "train/adam_v_global_norm",

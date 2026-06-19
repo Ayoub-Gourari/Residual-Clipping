@@ -30,6 +30,8 @@ REQUIRED_KEYS = {
     "clipping_scale",
     "residual_global_norm",
     "metric_residual_global_norm",
+    "v_pseudo_grad_global_norm",
+    "v_clipping_scale",
     "update_global_norm",
     "adam_m_global_norm",
     "adam_v_global_norm",

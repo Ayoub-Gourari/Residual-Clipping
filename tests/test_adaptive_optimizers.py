@@ -50,6 +50,7 @@ def test_all_adamw_optimizer_names_produce_requested_diagnostics_without_nans():
         "adamw_uncut",
         "adamw_clip",
         "adamw_resclip_euclidean",
+        "adamw_resclip_euclidean_vclip",
         "adamw_resclip_metric",
     ]
     required_keys = {
@@ -60,6 +61,8 @@ def test_all_adamw_optimizer_names_produce_requested_diagnostics_without_nans():
         "clipping_scale",
         "residual_global_norm",
         "metric_residual_global_norm",
+        "v_pseudo_grad_global_norm",
+        "v_clipping_scale",
         "update_global_norm",
         "adam_m_global_norm",
         "adam_v_global_norm",
@@ -90,3 +93,25 @@ def test_all_adamw_optimizer_names_produce_requested_diagnostics_without_nans():
         for key, value in diagnostics.items():
             if isinstance(value, float):
                 assert torch.isfinite(torch.tensor(value))
+
+
+def test_resclip_vclip_uses_standard_clipped_gradient_for_second_moment():
+    param = torch.nn.Parameter(torch.tensor([0.0], dtype=torch.float32))
+    optimizer = AdaptiveAdamW(
+        [param],
+        optimizer_name="adamw_resclip_euclidean_vclip",
+        beta1=0.9,
+        beta2=0.0,
+        eps=1e-8,
+        weight_decay=0.0,
+        clip_threshold=1.0,
+        clipping_scope="local",
+        correct_bias=False,
+    )
+
+    optimizer.step([torch.tensor([10.0])], lr=0.0)
+    diagnostics = optimizer.step([torch.tensor([10.0])], lr=0.0)
+
+    assert torch.allclose(optimizer.exp_avg_sq[0], torch.tensor([1.0]))
+    assert diagnostics["pseudo_grad_global_norm"] > diagnostics["v_pseudo_grad_global_norm"]
+    assert abs(diagnostics["v_pseudo_grad_global_norm"] - 1.0) < 1e-6

@@ -14,6 +14,7 @@ ADAPTIVE_OPTIMIZER_NAMES = (
     "adamw_uncut",
     "adamw_clip",
     "adamw_resclip_euclidean",
+    "adamw_resclip_euclidean_vclip",
     "adamw_resclip_metric",
 )
 ADAPTIVE_OPTIMIZER_MODES = ADAPTIVE_OPTIMIZER_NAMES
@@ -315,7 +316,7 @@ class AdaptiveAdamW:
         residuals = [grad - center for grad, center in zip(grads, centers)]
         residual_norm = _safe_norm(residuals)
 
-        if self.optimizer_name == "adamw_resclip_euclidean" or next_step == 1:
+        if self.optimizer_name in {"adamw_resclip_euclidean", "adamw_resclip_euclidean_vclip"} or next_step == 1:
             clipped_residuals, _clipped_norm, scale = self._clip_values(residuals)
             pseudo = [center + residual for center, residual in zip(centers, clipped_residuals)]
             return pseudo, {
@@ -373,10 +374,19 @@ class AdaptiveAdamW:
         ]
         next_step = self.step_count + 1
         pseudo_grads, diagnostics = self._pseudo_gradients(materialized_grads, next_step=next_step)
+        if self.optimizer_name == "adamw_resclip_euclidean_vclip":
+            second_moment_grads, _second_moment_norm, v_scale = self._clip_values(materialized_grads)
+        else:
+            second_moment_grads = pseudo_grads
+            v_scale = diagnostics["clipping_scale"]
+        diagnostics["v_pseudo_grad_global_norm"] = _safe_norm(second_moment_grads)
+        diagnostics["v_clipping_scale"] = v_scale
         updates: list[torch.Tensor] = []
 
         with torch.no_grad():
-            for group, param, pseudo_grad, exp_avg, exp_avg_sq in self._flat_group_items(pseudo_grads):
+            for index, (group, param, pseudo_grad, exp_avg, exp_avg_sq) in enumerate(
+                self._flat_group_items(pseudo_grads)
+            ):
                 beta1 = float(group["beta1"])
                 beta2 = float(group["beta2"])
                 eps = float(group["eps"])
@@ -385,7 +395,8 @@ class AdaptiveAdamW:
                 correct_bias = bool(group["correct_bias"])
 
                 exp_avg.mul_(beta1).add_(pseudo_grad, alpha=1.0 - beta1)
-                exp_avg_sq.mul_(beta2).addcmul_(pseudo_grad, pseudo_grad, value=1.0 - beta2)
+                second_moment_grad = second_moment_grads[index]
+                exp_avg_sq.mul_(beta2).addcmul_(second_moment_grad, second_moment_grad, value=1.0 - beta2)
 
                 if correct_bias:
                     bias_correction1 = max(1.0 - beta1 ** next_step, _EPS_NORM)
