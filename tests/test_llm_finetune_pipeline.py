@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from residual_clipping.llm_finetune_pipeline import run_llm_finetune_experiment, run_sweep, sweep_output_dir
 
@@ -141,6 +142,18 @@ def test_fake_sequence_classification_logs_accuracy(tmp_path):
     eval_row = next(row for row in reversed(metric_rows) if "eval/accuracy" in row)
     assert eval_row["eval/best_accuracy"] == summary["best_validation_accuracy"]
     assert eval_row["optimizer/clip_threshold"] == float("inf")
+
+
+def test_require_cuda_fails_instead_of_falling_back_to_cpu(tmp_path):
+    args = make_args(tmp_path, require_cuda=True)
+
+    with patch("torch.cuda.is_available", return_value=False):
+        try:
+            run_llm_finetune_experiment(args)
+        except RuntimeError as exc:
+            assert "CUDA is required" in str(exc)
+        else:
+            raise AssertionError("Expected a required-CUDA run to fail when CUDA is unavailable.")
 
 
 def test_live_wandb_payloads_include_canonical_optimizer_and_eval_metrics(tmp_path, monkeypatch):

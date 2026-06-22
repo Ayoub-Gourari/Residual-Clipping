@@ -688,7 +688,6 @@ class AdaptiveAdamW:
         if self.optimizer_name in {
             "adamw_resclip_euclidean_vclip",
             "adamw_resclip_euclidean_vclip_varalpha",
-            RESIDUAL_CLIP_ADAMW_M,
         }:
             second_moment_grads, _second_moment_norm, v_scale = self._clip_values(materialized_grads)
         else:
@@ -700,7 +699,6 @@ class AdaptiveAdamW:
             "adamw_clip",
             "adamw_resclip_euclidean_vclip",
             "adamw_resclip_euclidean_vclip_varalpha",
-            RESIDUAL_CLIP_ADAMW_M,
         }
         if self.optimizer_name in raw_gradient_clipped_modes:
             clipped_grads = second_moment_grads

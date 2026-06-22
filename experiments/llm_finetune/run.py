@@ -60,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--optimizer-mode", dest="optimizer_name", choices=ADAPTIVE_OPTIMIZER_NAMES, help=argparse.SUPPRESS)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--use-cuda", action="store_true", default=False)
+    parser.add_argument(
+        "--require-cuda",
+        action="store_true",
+        default=False,
+        help="Use CUDA and fail instead of falling back to CPU when CUDA is unavailable.",
+    )
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--eval-batch-size", type=int, default=4)

@@ -178,7 +178,7 @@ def test_resclip_vclip_uses_standard_clipped_gradient_for_second_moment():
     assert abs(diagnostics["v_pseudo_grad_global_norm"] - 1.0) < 1e-6
 
 
-def test_residual_clip_adamw_m_uses_bias_corrected_center_and_clipped_raw_second_moment():
+def test_residual_clip_adamw_m_uses_bias_corrected_center_and_coupled_second_moment():
     param = torch.nn.Parameter(torch.tensor([0.0], dtype=torch.float32))
     optimizer = AdaptiveAdamW(
         [param],
@@ -197,11 +197,42 @@ def test_residual_clip_adamw_m_uses_bias_corrected_center_and_clipped_raw_second
 
     # Step 2 uses c_2 = m_1 / (1 - beta1) = 1, hence pseudo-gradient 2.
     assert torch.allclose(optimizer.exp_avg[0], torch.tensor([1.25]))
-    assert torch.allclose(optimizer.exp_avg_sq[0], torch.tensor([1.0]))
+    assert torch.allclose(optimizer.exp_avg_sq[0], torch.tensor([4.0]))
     assert abs(diagnostics["pseudo_grad_global_norm"] - 2.0) < 1e-6
-    assert abs(diagnostics["v_pseudo_grad_global_norm"] - 1.0) < 1e-6
-    assert abs(diagnostics["adam_update_norm"] - (1.25 / 0.75)) < 1e-6
+    assert abs(diagnostics["v_pseudo_grad_global_norm"] - 2.0) < 1e-6
+    assert abs(diagnostics["adam_update_norm"] - (1.25 / 0.75) / 2.0) < 1e-6
     assert diagnostics["correct_bias"] == 1.0
+
+
+def test_residual_clip_adamw_m_recovers_uncut_adamw_at_infinite_threshold():
+    param_uncut = torch.nn.Parameter(torch.tensor([1.0, -2.0], dtype=torch.float32))
+    param_resclip = torch.nn.Parameter(torch.tensor([1.0, -2.0], dtype=torch.float32))
+    shared_kwargs = {
+        "beta1": 0.9,
+        "beta2": 0.999,
+        "eps": 1e-8,
+        "weight_decay": 0.0,
+        "clip_threshold": float("inf"),
+        "clipping_scope": "global",
+        "correct_bias": True,
+    }
+    optimizer_uncut = AdaptiveAdamW([param_uncut], optimizer_name="adamw_uncut", **shared_kwargs)
+    optimizer_resclip = AdaptiveAdamW(
+        [param_resclip], optimizer_name=RESIDUAL_CLIP_ADAMW_M, **shared_kwargs
+    )
+
+    gradients = [
+        torch.tensor([4.0, -3.0]),
+        torch.tensor([-2.0, 1.0]),
+        torch.tensor([0.5, 7.0]),
+    ]
+    for gradient in gradients:
+        optimizer_uncut.step([gradient], lr=1e-3)
+        optimizer_resclip.step([gradient], lr=1e-3)
+
+    assert torch.allclose(param_resclip.detach(), param_uncut.detach(), atol=1e-7)
+    assert torch.allclose(optimizer_resclip.exp_avg[0], optimizer_uncut.exp_avg[0], atol=1e-7)
+    assert torch.allclose(optimizer_resclip.exp_avg_sq[0], optimizer_uncut.exp_avg_sq[0], atol=1e-7)
 
 
 def test_resclip_varalpha_uses_variable_first_moment_bias_mass():

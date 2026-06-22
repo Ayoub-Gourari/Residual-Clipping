@@ -65,8 +65,22 @@ When W&B logging is enabled and `--wandb-group` is omitted, the CIFAR sweep path
 ```bash
 python -m experiments.quadratics.run --wandb-mode disabled
 python -m experiments.quadratics.search --wandb-mode disabled --resume
+python -m experiments.quadratics.adaptive
+python -m experiments.quadratics.adaptive_sweep
 python -m experiments.quadratics.plot
 ```
+
+The adaptive runner compares production AdamW variants on identical symmetric-Pareto
+noise paths. It writes constant-gradient moment diagnostics, logged trajectories,
+per-seed stability metrics, aggregate performance, and threshold-sensitivity tables
+under `outputs/adaptive_quadratics/`.
+See [docs/adaptive_adamw_quadratics.md](docs/adaptive_adamw_quadratics.md) for the
+experiment protocol, results, and ALBERT/RTE recommendation.
+
+The adaptive sweep selects learning rate and first-moment momentum at each clipping
+threshold over matched seeds. It writes selection tables and the best-loss and
+best-trajectory figures under `outputs/adaptive_quadratics/hparam_sweep/` and
+`figures/adaptive_quadratics/hparam_sweep/` by default.
 
 ### CIFAR-10: Single Run
 

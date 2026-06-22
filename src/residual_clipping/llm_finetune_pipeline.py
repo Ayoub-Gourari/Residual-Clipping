@@ -945,7 +945,12 @@ def train_one_epoch(
 
 
 def run_llm_finetune_experiment(args) -> dict[str, Any]:
-    if args.use_cuda and not torch.cuda.is_available():
+    require_cuda = bool(getattr(args, "require_cuda", False))
+    if require_cuda and not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required for this run, but torch.cuda.is_available() is false.")
+    if require_cuda:
+        args.use_cuda = True
+    elif args.use_cuda and not torch.cuda.is_available():
         print("Requested CUDA, but no CUDA device is available; using CPU.", flush=True)
         args.use_cuda = False
     normalize_shared_run_attrs(args)

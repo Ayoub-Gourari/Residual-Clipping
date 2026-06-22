@@ -29,6 +29,7 @@ BOOL_FLAGS = {
     "--resume",
     "--overwrite",
     "--use-cuda",
+    "--require-cuda",
 }
 
 ALIASES = {
