@@ -3,6 +3,7 @@ import torch
 from residual_clipping.adaptive_optimizers import (
     ADAPTIVE_OPTIMIZER_NAMES,
     RESIDUAL_CLIP_ADAMW_M,
+    RESIDUAL_CLIP_ADAMW_M_POST,
     AdaptiveAdamW,
 )
 
@@ -133,7 +134,7 @@ def test_main_comparison_optimizers_emit_canonical_live_diagnostics():
         "optimizer/clip_threshold",
     }
 
-    for name in ("adamw_uncut", "adamw_clip", RESIDUAL_CLIP_ADAMW_M):
+    for name in ("adamw_uncut", "adamw_clip", RESIDUAL_CLIP_ADAMW_M, RESIDUAL_CLIP_ADAMW_M_POST):
         param = torch.nn.Parameter(torch.tensor([1.0, -1.0], dtype=torch.float32))
         optimizer = AdaptiveAdamW(
             [param],
@@ -233,6 +234,62 @@ def test_residual_clip_adamw_m_recovers_uncut_adamw_at_infinite_threshold():
     assert torch.allclose(param_resclip.detach(), param_uncut.detach(), atol=1e-7)
     assert torch.allclose(optimizer_resclip.exp_avg[0], optimizer_uncut.exp_avg[0], atol=1e-7)
     assert torch.allclose(optimizer_resclip.exp_avg_sq[0], optimizer_uncut.exp_avg_sq[0], atol=1e-7)
+
+
+def test_residual_clip_adamw_mpost_centers_on_raw_moment_and_corrects_only_update():
+    param = torch.nn.Parameter(torch.tensor([0.0], dtype=torch.float32))
+    optimizer = AdaptiveAdamW(
+        [param],
+        optimizer_name=RESIDUAL_CLIP_ADAMW_M_POST,
+        beta1=0.5,
+        beta2=0.0,
+        eps=1e-8,
+        weight_decay=0.0,
+        clip_threshold=1.0,
+        clipping_scope="local",
+        correct_bias=False,
+    )
+
+    optimizer.step([torch.tensor([4.0])], lr=0.0)
+    diagnostics = optimizer.step([torch.tensor([4.0])], lr=0.0)
+
+    # The raw center is m_1=0.5, so p_2=0.5+clip(3.5,1)=1.5.
+    assert abs(diagnostics["center/norm"] - 0.5) < 1e-6
+    assert abs(diagnostics["pseudo_grad_global_norm"] - 1.5) < 1e-6
+    assert torch.allclose(optimizer.exp_avg[0], torch.tensor([1.0]))
+    assert torch.allclose(optimizer.exp_avg_sq[0], torch.tensor([2.25]))
+    assert abs(diagnostics["adam_update_norm"] - ((1.0 / 0.75) / 1.5)) < 1e-6
+    assert diagnostics["correct_bias"] == 1.0
+
+
+def test_residual_clip_adamw_mpost_recovers_uncut_adamw_at_infinite_threshold():
+    param_uncut = torch.nn.Parameter(torch.tensor([1.0, -2.0], dtype=torch.float32))
+    param_mpost = torch.nn.Parameter(torch.tensor([1.0, -2.0], dtype=torch.float32))
+    shared_kwargs = {
+        "beta1": 0.9,
+        "beta2": 0.999,
+        "eps": 1e-8,
+        "weight_decay": 0.0,
+        "clip_threshold": float("inf"),
+        "clipping_scope": "global",
+        "correct_bias": True,
+    }
+    optimizer_uncut = AdaptiveAdamW([param_uncut], optimizer_name="adamw_uncut", **shared_kwargs)
+    optimizer_mpost = AdaptiveAdamW(
+        [param_mpost], optimizer_name=RESIDUAL_CLIP_ADAMW_M_POST, **shared_kwargs
+    )
+
+    for gradient in [
+        torch.tensor([4.0, -3.0]),
+        torch.tensor([-2.0, 1.0]),
+        torch.tensor([0.5, 7.0]),
+    ]:
+        optimizer_uncut.step([gradient], lr=1e-3)
+        optimizer_mpost.step([gradient], lr=1e-3)
+
+    assert torch.allclose(param_mpost.detach(), param_uncut.detach(), atol=1e-7)
+    assert torch.allclose(optimizer_mpost.exp_avg[0], optimizer_uncut.exp_avg[0], atol=1e-7)
+    assert torch.allclose(optimizer_mpost.exp_avg_sq[0], optimizer_uncut.exp_avg_sq[0], atol=1e-7)
 
 
 def test_resclip_varalpha_uses_variable_first_moment_bias_mass():

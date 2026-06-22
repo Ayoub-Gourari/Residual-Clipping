@@ -19,6 +19,7 @@ from torch.nn import functional as F
 from .adaptive_optimizers import (
     ADAPTIVE_OPTIMIZER_MODES,
     RESIDUAL_CLIP_ADAMW_M,
+    RESIDUAL_CLIP_ADAMW_M_POST,
     AdaptiveAdamW,
     collect_trainable_gradients,
 )
@@ -127,7 +128,7 @@ def normalize_shared_run_attrs(args) -> None:
         args.clipping_scope = "local"
     if not hasattr(args, "correct_bias"):
         args.correct_bias = False
-    if args.optimizer_name == RESIDUAL_CLIP_ADAMW_M:
+    if args.optimizer_name in {RESIDUAL_CLIP_ADAMW_M, RESIDUAL_CLIP_ADAMW_M_POST}:
         args.correct_bias = True
     if not hasattr(args, "classifier_dropout"):
         args.classifier_dropout = getattr(args, "dropout", 0.0)

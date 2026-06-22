@@ -155,6 +155,7 @@ The ALBERT/RTE optimizer sweep includes:
 - `adamw_resclip_metric`
 - `adamw_resclip_metric_vclip`
 - `ResidualClipAdamW-M`
+- `ResidualClipAdamW-MPost` (uncorrected center, post-hoc Adam bias correction)
 
 It defaults to scalar-only logs, no checkpoints, no final model save, and no W&B model artifacts. Use external caches when storage is tight:
 
@@ -223,6 +224,12 @@ python scripts/aggregate_rte_reproduction.py --plots
 
 The aggregation writes validation curves, threshold/seed robustness tables, gap-to-best,
 spread, AUCGap, optimizer diagnostic summaries, and the corresponding headless PNG plots.
+
+Scale out all ALBERT/RTE optimizer methods over larger thresholds and learning rates with
+the tracked `albert_base_v2_rte_all_methods_scaleout.yaml` config. The RTE aggregator
+keeps learning rates separate, writes `rte_best_loss_by_lr.csv`/`.png` after selecting the
+best threshold for each learning rate, and writes `rte_best_loss_trajectories.csv`/`.png`
+after jointly selecting learning rate and threshold.
 
 ### CIFAR-10: Three-Machine Grouped Workflow
 

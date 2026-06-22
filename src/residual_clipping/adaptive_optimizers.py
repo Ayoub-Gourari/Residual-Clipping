@@ -11,6 +11,7 @@ from .clipping import tensor_list_global_norm
 
 
 RESIDUAL_CLIP_ADAMW_M = "ResidualClipAdamW-M"
+RESIDUAL_CLIP_ADAMW_M_POST = "ResidualClipAdamW-MPost"
 
 
 ADAPTIVE_OPTIMIZER_NAMES = (
@@ -22,6 +23,7 @@ ADAPTIVE_OPTIMIZER_NAMES = (
     "adamw_resclip_metric",
     "adamw_resclip_metric_vclip",
     RESIDUAL_CLIP_ADAMW_M,
+    RESIDUAL_CLIP_ADAMW_M_POST,
 )
 ADAPTIVE_OPTIMIZER_MODES = ADAPTIVE_OPTIMIZER_NAMES
 CLIPPING_SCOPES = ("global", "local", "layerwise", "elementwise")
@@ -209,7 +211,7 @@ class AdaptiveAdamW:
         return self.optimizer_name
 
     def _enforce_algorithm_options(self) -> None:
-        if self.optimizer_name == RESIDUAL_CLIP_ADAMW_M:
+        if self.optimizer_name in {RESIDUAL_CLIP_ADAMW_M, RESIDUAL_CLIP_ADAMW_M_POST}:
             # Bias corrections are part of this named algorithm, not an optional Adam setting.
             for group in self.param_groups:
                 group["correct_bias"] = True
@@ -495,6 +497,7 @@ class AdaptiveAdamW:
             "adamw_resclip_euclidean_vclip",
             "adamw_resclip_euclidean_vclip_varalpha",
             RESIDUAL_CLIP_ADAMW_M,
+            RESIDUAL_CLIP_ADAMW_M_POST,
         } or next_step == 1:
             clipped_residuals, _clipped_norm, scale = self._clip_values(residuals)
             pseudo = [center + residual for center, residual in zip(centers, clipped_residuals)]

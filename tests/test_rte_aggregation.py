@@ -3,6 +3,7 @@ import math
 import pandas as pd
 
 from scripts.aggregate_rte_reproduction import (
+    best_loss_by_lr_summary,
     run_accuracy_frame,
     run_loss_frame,
     select_best_loss_curves,
@@ -25,6 +26,7 @@ def test_threshold_sensitivity_and_seed_statistics():
             records.append(
                 {
                     "optimizer_name": optimizer_name,
+                    "lr": 1e-5,
                     "clip_threshold": threshold,
                     "clipping_scope": "global",
                     "seed": seed,
@@ -66,6 +68,7 @@ def test_threshold_loss_summary_and_best_trajectory_selection():
                 records.append(
                     {
                         "optimizer_name": optimizer_name,
+                        "lr": 1e-5,
                         "clip_threshold": threshold,
                         "clipping_scope": "local",
                         "seed": seed,
@@ -94,3 +97,39 @@ def test_threshold_loss_summary_and_best_trajectory_selection():
         "ResidualClipAdamW-M",
     }
     assert set(best_curves[best_curves["optimizer_name"] == "adamw_clip"]["clip_threshold"]) == {2.0}
+
+
+def test_best_loss_by_lr_and_joint_trajectory_selection():
+    records = []
+    losses = {
+        (1e-5, 8.0): [0.60, 0.62],
+        (1e-5, 16.0): [0.58, 0.60],
+        (2e-5, 8.0): [0.55, 0.57],
+        (2e-5, 16.0): [0.52, 0.54],
+    }
+    for (lr, threshold), seed_losses in losses.items():
+        for seed, best_loss in enumerate(seed_losses):
+            for step, offset in ((0, 0.1), (12, 0.0)):
+                records.append(
+                    {
+                        "optimizer_name": "ResidualClipAdamW-MPost",
+                        "lr": lr,
+                        "clip_threshold": threshold,
+                        "clipping_scope": "local",
+                        "seed": seed,
+                        "run_name": f"run-{lr}-{threshold}-{seed}",
+                        "global_step": step,
+                        "val_loss": best_loss + offset,
+                        "best_loss": best_loss,
+                    }
+                )
+
+    frame = pd.DataFrame(records)
+    threshold_summary = threshold_loss_summary(run_loss_frame(frame))
+    by_lr = best_loss_by_lr_summary(threshold_summary)
+    curves = select_best_loss_curves(summarize(frame, "val_loss"), threshold_summary)
+
+    assert list(by_lr["clip_threshold"]) == [16.0, 16.0]
+    assert list(by_lr["threshold/loss_mean"]) == [0.59, 0.53]
+    assert set(curves["lr"]) == {2e-5}
+    assert set(curves["clip_threshold"]) == {16.0}
