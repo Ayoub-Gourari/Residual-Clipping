@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -49,8 +50,8 @@ def records_from_local(input_dir: Path) -> list[dict[str, Any]]:
             if not line.strip():
                 continue
             row = json.loads(line)
-            val_loss = _first_available(row, ["val_loss", "validation/loss"])
-            val_accuracy = _first_available(row, ["val_accuracy", "validation/accuracy"])
+            val_loss = _first_available(row, ["eval/loss", "val_loss", "validation/loss"])
+            val_accuracy = _first_available(row, ["eval/accuracy", "val_accuracy", "validation/accuracy"])
             if val_loss is None and val_accuracy is None:
                 continue
             step = _first_available(row, ["global_step", "validation/global_step", "train/global_step", "Step"])
@@ -63,6 +64,7 @@ def records_from_local(input_dir: Path) -> list[dict[str, Any]]:
                     "global_step": int(step or 0),
                     "val_loss": None if val_loss is None else float(val_loss),
                     "val_accuracy": None if val_accuracy is None else float(val_accuracy),
+                    "best_accuracy": summary.get("best_validation_accuracy"),
                     "run_name": summary.get("run_name", run_dir.name),
                 }
             )
@@ -75,8 +77,11 @@ def records_from_csv(paths: list[Path]) -> list[dict[str, Any]]:
         frame = pd.read_csv(path)
         for _, row in frame.iterrows():
             row_dict = row.to_dict()
-            val_loss = _first_available(row_dict, ["val_loss", "validation/loss", "validation_loss"])
-            val_accuracy = _first_available(row_dict, ["val_accuracy", "validation/accuracy", "validation_accuracy"])
+            val_loss = _first_available(row_dict, ["eval/loss", "val_loss", "validation/loss", "validation_loss"])
+            val_accuracy = _first_available(
+                row_dict,
+                ["eval/accuracy", "val_accuracy", "validation/accuracy", "validation_accuracy"],
+            )
             if pd.isna(val_loss) and pd.isna(val_accuracy):
                 continue
             step = _first_available(row_dict, ["global_step", "validation/global_step", "Step", "_step"])
@@ -89,6 +94,10 @@ def records_from_csv(paths: list[Path]) -> list[dict[str, Any]]:
                     "global_step": int(0 if pd.isna(step) else step),
                     "val_loss": None if pd.isna(val_loss) else float(val_loss),
                     "val_accuracy": None if pd.isna(val_accuracy) else float(val_accuracy),
+                    "best_accuracy": _first_available(
+                        row_dict,
+                        ["eval/best_accuracy", "best_validation_accuracy"],
+                    ),
                     "run_name": _first_available(row_dict, ["run_name", "Name", "name"]),
                 }
             )
@@ -110,12 +119,146 @@ def summarize(frame: pd.DataFrame, value_col: str) -> pd.DataFrame:
     ).reset_index()
 
 
+def run_accuracy_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(
+            columns=["optimizer_name", "clip_threshold", "clipping_scope", "seed", "run_name", "accuracy"]
+        )
+    rows: list[dict[str, Any]] = []
+    group_cols = ["optimizer_name", "clip_threshold", "clipping_scope", "seed", "run_name"]
+    for keys, group in frame.groupby(group_cols, dropna=False):
+        best_values = pd.to_numeric(group.get("best_accuracy"), errors="coerce").dropna()
+        accuracy_values = pd.to_numeric(group["val_accuracy"], errors="coerce").dropna()
+        if best_values.empty and accuracy_values.empty:
+            continue
+        rows.append(
+            {
+                **dict(zip(group_cols, keys)),
+                "accuracy": float(best_values.max() if not best_values.empty else accuracy_values.max()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def threshold_sensitivity_summary(run_frame: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "optimizer_name",
+        "clip_threshold",
+        "clipping_scope",
+        "threshold/accuracy_mean",
+        "threshold/accuracy_std",
+        "threshold/gap_to_best",
+        "threshold/best_accuracy",
+        "threshold/worst_accuracy",
+        "threshold/median_accuracy",
+        "threshold/spread",
+        "threshold/auc_gap",
+        "seed/accuracy_mean",
+        "seed/accuracy_std",
+        "seed/accuracy_min",
+        "seed/accuracy_max",
+        "seed/accuracy_median",
+        "seed/accuracy_range",
+        "seed/count",
+    ]
+    if run_frame.empty:
+        return pd.DataFrame(columns=columns)
+
+    grouped = run_frame.groupby(
+        ["optimizer_name", "clip_threshold", "clipping_scope"],
+        dropna=False,
+    )["accuracy"]
+    summary = grouped.agg(
+        **{
+            "seed/accuracy_mean": "mean",
+            "seed/accuracy_std": "std",
+            "seed/accuracy_min": "min",
+            "seed/accuracy_max": "max",
+            "seed/accuracy_median": "median",
+            "seed/count": "count",
+        }
+    ).reset_index()
+    summary["seed/accuracy_std"] = summary["seed/accuracy_std"].fillna(0.0)
+    summary["seed/accuracy_range"] = summary["seed/accuracy_max"] - summary["seed/accuracy_min"]
+    summary["threshold/accuracy_mean"] = summary["seed/accuracy_mean"]
+    summary["threshold/accuracy_std"] = summary["seed/accuracy_std"]
+
+    method_cols = ["optimizer_name", "clipping_scope"]
+    summary["threshold/best_accuracy"] = summary.groupby(method_cols, dropna=False)[
+        "threshold/accuracy_mean"
+    ].transform("max")
+    summary["threshold/worst_accuracy"] = summary.groupby(method_cols, dropna=False)[
+        "threshold/accuracy_mean"
+    ].transform("min")
+    summary["threshold/median_accuracy"] = summary.groupby(method_cols, dropna=False)[
+        "threshold/accuracy_mean"
+    ].transform("median")
+    summary["threshold/gap_to_best"] = (
+        summary["threshold/best_accuracy"] - summary["threshold/accuracy_mean"]
+    )
+    summary["threshold/spread"] = summary["threshold/best_accuracy"] - summary["threshold/worst_accuracy"]
+    summary["threshold/auc_gap"] = summary.groupby(method_cols, dropna=False)[
+        "threshold/gap_to_best"
+    ].transform("mean")
+    return summary[columns]
+
+
+DIAGNOSTIC_KEYS = (
+    "clipped_grad/relative_norm",
+    "pseudo_grad/relative_norm",
+    "residual/relative_norm",
+    "update/norm",
+    "clipping/grad_activation_rate",
+    "clipping/residual_activation_rate",
+)
+
+
+def diagnostic_records_from_local(input_dir: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for summary_path in sorted(input_dir.glob("**/summary.json")):
+        run_dir = summary_path.parent
+        metrics_path = run_dir / "metrics.jsonl"
+        if not metrics_path.exists():
+            continue
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        for line in metrics_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not any(key in row for key in DIAGNOSTIC_KEYS):
+                continue
+            record = {
+                "optimizer_name": summary.get("optimizer_name"),
+                "clip_threshold": summary.get("clip_threshold"),
+                "clipping_scope": summary.get("clipping_scope"),
+                "seed": summary.get("seed"),
+                "run_name": summary.get("run_name", run_dir.name),
+                "global_step": int(_first_available(row, ["train/global_step", "global_step"]) or 0),
+            }
+            for key in DIAGNOSTIC_KEYS:
+                record[key] = row.get(key)
+            records.append(record)
+    return records
+
+
+def summarize_diagnostics(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(columns=["optimizer_name", "clip_threshold", "clipping_scope", *DIAGNOSTIC_KEYS])
+    aggregations = {key: "mean" for key in DIAGNOSTIC_KEYS if key in frame.columns}
+    return (
+        frame.groupby(["optimizer_name", "clip_threshold", "clipping_scope"], dropna=False)
+        .agg(aggregations)
+        .reset_index()
+    )
+
+
 def write_plot(summary: pd.DataFrame, *, value_name: str, output_path: Path) -> None:
     if summary.empty:
         return
     mpl_config_dir = Path(tempfile.gettempdir()) / "residual_clipping_mpl"
     mpl_config_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(mpl_config_dir))
+    os.environ.setdefault("MPLBACKEND", "Agg")
     try:
         import matplotlib.pyplot as plt
     except Exception as exc:
@@ -147,6 +290,140 @@ def write_plot(summary: pd.DataFrame, *, value_name: str, output_path: Path) -> 
         print(f"Skipping {output_path.name}: plotting failed ({exc}).", flush=True)
 
 
+def write_threshold_plot(
+    frame: pd.DataFrame,
+    *,
+    value_col: str,
+    output_path: Path,
+    ylabel: str,
+    error_col: str | None = None,
+) -> None:
+    if frame.empty or value_col not in frame:
+        return
+    mpl_config_dir = Path(tempfile.gettempdir()) / "residual_clipping_mpl"
+    mpl_config_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(mpl_config_dir))
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"Skipping {output_path.name}: matplotlib is unavailable ({exc}).", flush=True)
+        return
+
+    fig, axis = plt.subplots(figsize=(7, 4))
+    plotted = False
+    for optimizer_name, group in frame.groupby("optimizer_name", dropna=False):
+        x = pd.to_numeric(group["clip_threshold"], errors="coerce").to_numpy(dtype=float)
+        y = pd.to_numeric(group[value_col], errors="coerce").to_numpy(dtype=float)
+        valid = np.isfinite(x) & np.isfinite(y) & (x > 0.0)
+        if not valid.any():
+            continue
+        order = np.argsort(x[valid])
+        x_values = x[valid][order]
+        y_values = y[valid][order]
+        if error_col is None or error_col not in group:
+            axis.plot(x_values, y_values, marker="o", label=str(optimizer_name))
+        else:
+            errors = pd.to_numeric(group[error_col], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            axis.errorbar(
+                x_values,
+                y_values,
+                yerr=errors[valid][order],
+                marker="o",
+                capsize=3,
+                label=str(optimizer_name),
+            )
+        plotted = True
+    if not plotted:
+        plt.close(fig)
+        return
+    axis.set_xscale("log")
+    axis.set_xlabel("Clipping threshold C")
+    axis.set_ylabel(ylabel)
+    axis.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160)
+    plt.close(fig)
+
+
+def write_paired_threshold_plot(
+    frame: pd.DataFrame,
+    *,
+    value_cols: tuple[str, str],
+    output_path: Path,
+    ylabel: str,
+) -> None:
+    if frame.empty:
+        return
+    mpl_config_dir = Path(tempfile.gettempdir()) / "residual_clipping_mpl"
+    mpl_config_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(mpl_config_dir))
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"Skipping {output_path.name}: matplotlib is unavailable ({exc}).", flush=True)
+        return
+
+    fig, axis = plt.subplots(figsize=(7, 4))
+    plotted = False
+    for optimizer_name, group in frame.groupby("optimizer_name", dropna=False):
+        x = pd.to_numeric(group["clip_threshold"], errors="coerce").to_numpy(dtype=float)
+        for value_col in value_cols:
+            if value_col not in group:
+                continue
+            y = pd.to_numeric(group[value_col], errors="coerce").to_numpy(dtype=float)
+            valid = np.isfinite(x) & np.isfinite(y) & (x > 0.0)
+            if not valid.any():
+                continue
+            order = np.argsort(x[valid])
+            metric_name = value_col.rsplit("/", maxsplit=1)[-1].replace("_", " ")
+            axis.plot(x[valid][order], y[valid][order], marker="o", label=f"{optimizer_name}: {metric_name}")
+            plotted = True
+    if not plotted:
+        plt.close(fig)
+        return
+    axis.set_xscale("log")
+    axis.set_xlabel("Clipping threshold C")
+    axis.set_ylabel(ylabel)
+    axis.legend(frameon=False, fontsize=8)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160)
+    plt.close(fig)
+
+
+def write_residual_training_plot(frame: pd.DataFrame, output_path: Path) -> None:
+    if frame.empty or "residual/relative_norm" not in frame:
+        return
+    mpl_config_dir = Path(tempfile.gettempdir()) / "residual_clipping_mpl"
+    mpl_config_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(mpl_config_dir))
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"Skipping {output_path.name}: matplotlib is unavailable ({exc}).", flush=True)
+        return
+
+    grouped = (
+        frame.dropna(subset=["residual/relative_norm"])
+        .groupby(["optimizer_name", "clip_threshold", "global_step"], dropna=False)["residual/relative_norm"]
+        .mean()
+        .reset_index()
+    )
+    fig, axis = plt.subplots(figsize=(7, 4))
+    for keys, group in grouped.groupby(["optimizer_name", "clip_threshold"], dropna=False):
+        optimizer_name, threshold = keys
+        group = group.sort_values("global_step")
+        axis.plot(group["global_step"], group["residual/relative_norm"], label=f"{optimizer_name}, C={threshold}")
+    axis.set_xlabel("Training step")
+    axis.set_ylabel("Residual relative norm")
+    axis.legend(frameon=False, fontsize=8)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160)
+    plt.close(fig)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     records = records_from_csv(args.csv) if args.csv else records_from_local(args.input_dir)
@@ -157,10 +434,18 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     loss_summary = summarize(frame, "val_loss")
     accuracy_summary = summarize(frame, "val_accuracy")
+    run_accuracy = run_accuracy_frame(frame)
+    threshold_summary = threshold_sensitivity_summary(run_accuracy)
+    diagnostic_frame = pd.DataFrame(diagnostic_records_from_local(args.input_dir)) if not args.csv else pd.DataFrame()
+    diagnostic_summary = summarize_diagnostics(diagnostic_frame)
     loss_path = args.output_dir / "rte_reproduction_val_loss_summary.csv"
     accuracy_path = args.output_dir / "rte_reproduction_val_accuracy_summary.csv"
+    threshold_path = args.output_dir / "rte_threshold_sensitivity_summary.csv"
+    diagnostic_path = args.output_dir / "rte_optimizer_diagnostics_summary.csv"
     loss_summary.to_csv(loss_path, index=False)
     accuracy_summary.to_csv(accuracy_path, index=False)
+    threshold_summary.to_csv(threshold_path, index=False)
+    diagnostic_summary.to_csv(diagnostic_path, index=False)
     if args.plots:
         write_plot(loss_summary, value_name="Validation loss", output_path=args.output_dir / "rte_reproduction_val_loss.png")
         write_plot(
@@ -168,8 +453,52 @@ def main() -> None:
             value_name="Validation accuracy",
             output_path=args.output_dir / "rte_reproduction_val_accuracy.png",
         )
+        write_threshold_plot(
+            threshold_summary,
+            value_col="threshold/accuracy_mean",
+            error_col="threshold/accuracy_std",
+            ylabel="Best validation accuracy",
+            output_path=args.output_dir / "rte_threshold_accuracy.png",
+        )
+        write_threshold_plot(
+            threshold_summary,
+            value_col="threshold/gap_to_best",
+            ylabel="Gap to best validation accuracy",
+            output_path=args.output_dir / "rte_threshold_gap_to_best.png",
+        )
+        write_threshold_plot(
+            threshold_summary,
+            value_col="seed/accuracy_mean",
+            error_col="seed/accuracy_std",
+            ylabel="Validation accuracy (mean +/- std)",
+            output_path=args.output_dir / "rte_seed_accuracy.png",
+        )
+        write_paired_threshold_plot(
+            diagnostic_summary,
+            value_cols=("clipped_grad/relative_norm", "pseudo_grad/relative_norm"),
+            ylabel="Relative norm",
+            output_path=args.output_dir / "rte_clipped_vs_pseudo_relative_norm.png",
+        )
+        write_threshold_plot(
+            diagnostic_summary,
+            value_col="update/norm",
+            ylabel="Adaptive update norm",
+            output_path=args.output_dir / "rte_update_norm.png",
+        )
+        write_paired_threshold_plot(
+            diagnostic_summary,
+            value_cols=("clipping/grad_activation_rate", "clipping/residual_activation_rate"),
+            ylabel="Clipping activation rate",
+            output_path=args.output_dir / "rte_clipping_activation_rates.png",
+        )
+        write_residual_training_plot(
+            diagnostic_frame,
+            args.output_dir / "rte_residual_relative_norm_over_training.png",
+        )
     print(f"Wrote {loss_path}", flush=True)
     print(f"Wrote {accuracy_path}", flush=True)
+    print(f"Wrote {threshold_path}", flush=True)
+    print(f"Wrote {diagnostic_path}", flush=True)
 
 
 if __name__ == "__main__":

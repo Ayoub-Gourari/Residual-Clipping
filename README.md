@@ -152,6 +152,17 @@ export WANDB_DIR="$HOME/.cache/wandb"
 export WANDB_CACHE_DIR="$WANDB_DIR/cache"
 ```
 
+Install and authenticate the optional live logger before using `--wandb-mode online`:
+
+```bash
+python -m pip install -e '.[llm,wandb]'
+wandb login
+```
+
+Training streams `train/*`, `eval/*`, gradient/residual norms, clipping activation rates,
+cosine alignments, Adam moments, and final update norms directly to W&B. The reproduction
+config uses `log_interval: 1`; increase it to sample expensive diagnostics less frequently.
+
 Warm the ALBERT/RTE cache once before launching runs from several SSH sessions:
 
 ```bash
@@ -193,8 +204,11 @@ Chezhegov-style ALBERT/RTE reproduction:
 python scripts/smoke_test_optimizers.py
 bash scripts/run_albert_rte_reproduction_stage1.sh
 bash scripts/run_albert_rte_reproduction_seeds.sh
-python scripts/aggregate_rte_reproduction.py
+python scripts/aggregate_rte_reproduction.py --plots
 ```
+
+The aggregation writes validation curves, threshold/seed robustness tables, gap-to-best,
+spread, AUCGap, optimizer diagnostic summaries, and the corresponding headless PNG plots.
 
 ### CIFAR-10: Three-Machine Grouped Workflow
 

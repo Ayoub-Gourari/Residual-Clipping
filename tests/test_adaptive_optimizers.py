@@ -94,6 +94,68 @@ def test_all_adamw_optimizer_names_produce_requested_diagnostics_without_nans():
                 assert torch.isfinite(torch.tensor(value))
 
 
+def test_main_comparison_optimizers_emit_canonical_live_diagnostics():
+    required_keys = {
+        "grad/norm",
+        "center/norm",
+        "residual/norm",
+        "residual/relative_norm",
+        "clipped_grad/norm",
+        "pseudo_grad/norm",
+        "clipped_grad/relative_norm",
+        "pseudo_grad/relative_norm",
+        "clipping/grad_activated",
+        "clipping/grad_activation_rate",
+        "clipping/residual_activated",
+        "clipping/residual_activation_rate",
+        "clipping/grad_scale",
+        "clipping/residual_scale",
+        "cosine/grad_center",
+        "cosine/grad_pseudo_grad",
+        "cosine/center_pseudo_grad",
+        "cosine/clipped_grad_pseudo_grad",
+        "adam/m_norm",
+        "adam/m_hat_norm",
+        "adam/v_norm",
+        "adam/v_hat_norm",
+        "adam/sqrt_v_hat_norm",
+        "adam/m_hat_over_sqrt_v_hat_norm",
+        "update/norm",
+        "update/lr_scaled_norm",
+        "update/relative_param_norm",
+        "update/weight_decay_norm",
+        "update/total_step_norm",
+        "optimizer/name",
+        "optimizer/lr",
+        "optimizer/beta1",
+        "optimizer/beta2",
+        "optimizer/weight_decay",
+        "optimizer/clip_threshold",
+    }
+
+    for name in ("adamw_uncut", "adamw_clip", RESIDUAL_CLIP_ADAMW_M):
+        param = torch.nn.Parameter(torch.tensor([1.0, -1.0], dtype=torch.float32))
+        optimizer = AdaptiveAdamW(
+            [param],
+            optimizer_name=name,
+            beta1=0.9,
+            beta2=0.99,
+            eps=1e-8,
+            weight_decay=0.01,
+            clip_threshold=0.5 if name != "adamw_uncut" else float("inf"),
+            clipping_scope="global",
+            correct_bias=True,
+        )
+
+        diagnostics = optimizer.step([torch.tensor([2.0, -3.0])], lr=1e-3)
+
+        assert required_keys.issubset(diagnostics)
+        assert diagnostics["optimizer/name"] == name
+        for key in required_keys - {"optimizer/name", "optimizer/clip_threshold"}:
+            assert torch.isfinite(torch.tensor(diagnostics[key]))
+        assert diagnostics["optimizer/clip_threshold"] == (float("inf") if name == "adamw_uncut" else 0.5)
+
+
 def test_resclip_vclip_uses_standard_clipped_gradient_for_second_moment():
     param = torch.nn.Parameter(torch.tensor([0.0], dtype=torch.float32))
     optimizer = AdaptiveAdamW(

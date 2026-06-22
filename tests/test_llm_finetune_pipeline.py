@@ -1,5 +1,7 @@
 import argparse
 import json
+import sys
+from types import SimpleNamespace
 
 from residual_clipping.llm_finetune_pipeline import run_llm_finetune_experiment, run_sweep, sweep_output_dir
 
@@ -90,6 +92,12 @@ def test_fake_llm_finetune_writes_summary_and_metrics(tmp_path):
     written_summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert written_summary["run_name"] == "fake-llm-smoke"
     assert "update_global_norm_mean" in written_summary["diagnostics"]
+    metric_rows = [json.loads(line) for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()]
+    train_row = next(row for row in metric_rows if "train/loss" in row)
+    assert train_row["optimizer/name"] == "adamw_uncut"
+    assert train_row["run/seed"] == 0
+    assert "grad/norm" in train_row
+    assert "update/total_step_norm" in train_row
 
 
 def test_fake_llm_sweep_writes_expected_rows(tmp_path):
@@ -126,3 +134,53 @@ def test_fake_sequence_classification_logs_accuracy(tmp_path):
     assert summary["best_validation_accuracy"] is not None
     assert summary["test_accuracy"] is not None
     assert summary["num_labels"] == 2
+    metric_rows = [
+        json.loads(line)
+        for line in (tmp_path / "fake-rte-smoke" / "metrics.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    eval_row = next(row for row in reversed(metric_rows) if "eval/accuracy" in row)
+    assert eval_row["eval/best_accuracy"] == summary["best_validation_accuracy"]
+    assert eval_row["optimizer/clip_threshold"] == float("inf")
+
+
+def test_live_wandb_payloads_include_canonical_optimizer_and_eval_metrics(tmp_path, monkeypatch):
+    logged_payloads = []
+    init_kwargs = {}
+    run = SimpleNamespace(finish=lambda: None)
+    fake_wandb = SimpleNamespace(run=None)
+
+    def init(**kwargs):
+        init_kwargs.update(kwargs)
+        fake_wandb.run = run
+        return run
+
+    def log(payload, *, step=None):
+        logged_payloads.append((dict(payload), step))
+
+    fake_wandb.init = init
+    fake_wandb.log = log
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+    args = make_args(
+        tmp_path,
+        wandb_mode="online",
+        wandb_project="Residual Clipping on Albert",
+        wandb_entity="ae-gourari-cole-polytechnique",
+        task_type="sequence_classification",
+        optimizer_name="ResidualClipAdamW-M",
+        clip_threshold=0.5,
+        run_name="fake-live-wandb",
+        max_train_batches=1,
+    )
+
+    run_llm_finetune_experiment(args)
+
+    assert init_kwargs["mode"] == "online"
+    assert init_kwargs["project"] == "Residual Clipping on Albert"
+    train_payload = next(payload for payload, _step in logged_payloads if "train/loss" in payload)
+    eval_payload = next(payload for payload, _step in reversed(logged_payloads) if "eval/accuracy" in payload)
+    assert train_payload["optimizer/name"] == "ResidualClipAdamW-M"
+    assert "grad/norm" in train_payload
+    assert "clipping/residual_activation_rate" in train_payload
+    assert "adam/m_hat_over_sqrt_v_hat_norm" in train_payload
+    assert "update/total_step_norm" in train_payload
+    assert eval_payload["eval/best_accuracy"] >= eval_payload["eval/accuracy"]

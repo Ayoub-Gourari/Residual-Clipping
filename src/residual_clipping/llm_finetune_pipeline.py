@@ -16,7 +16,12 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .adaptive_optimizers import ADAPTIVE_OPTIMIZER_MODES, AdaptiveAdamW, collect_trainable_gradients
+from .adaptive_optimizers import (
+    ADAPTIVE_OPTIMIZER_MODES,
+    RESIDUAL_CLIP_ADAMW_M,
+    AdaptiveAdamW,
+    collect_trainable_gradients,
+)
 from .cifar10_pipeline import (
     RunningDiagnostics,
     log_wandb,
@@ -122,6 +127,8 @@ def normalize_shared_run_attrs(args) -> None:
         args.clipping_scope = "local"
     if not hasattr(args, "correct_bias"):
         args.correct_bias = False
+    if args.optimizer_name == RESIDUAL_CLIP_ADAMW_M:
+        args.correct_bias = True
     if not hasattr(args, "classifier_dropout"):
         args.classifier_dropout = getattr(args, "dropout", 0.0)
     if not hasattr(args, "val_check_interval"):
@@ -743,6 +750,18 @@ def scheduled_learning_rate(base_lr: float, step: int, total_steps: int, warmup_
     return base_lr * min(1.0, float(step) / float(warmup_steps))
 
 
+def optimizer_log_metadata(args, lr: float) -> dict[str, float | int | str]:
+    return {
+        "optimizer/name": args.optimizer_name,
+        "optimizer/lr": lr,
+        "optimizer/beta1": args.adam_beta1,
+        "optimizer/beta2": args.adam_beta2,
+        "optimizer/weight_decay": args.weight_decay,
+        "optimizer/clip_threshold": args.clip_threshold,
+        "run/seed": args.seed,
+    }
+
+
 def _layerwise_group_name(parameter_name: str) -> str:
     """Best-effort module grouping for true layer-wise clipping experiments."""
     albert_layer = re.match(
@@ -801,6 +820,7 @@ def train_one_epoch(
     device: torch.device,
     total_training_steps: int,
     params: list[nn.Parameter],
+    best_state: dict[str, float | int | None],
 ) -> int:
     model.train()
     if task_type == "causal_lm":
@@ -852,13 +872,15 @@ def train_one_epoch(
                 "epoch": epoch,
                 "train_loss": loss.item(),
                 "learning_rate": step_lr,
+                **optimizer_log_metadata(args, step_lr),
             }
             if task_type == "causal_lm":
                 payload["train/perplexity"] = perplexity(loss.item())
             else:
                 labels = batch["labels"]
                 payload["train/accuracy"] = 100.0 * float(output.logits.argmax(dim=-1).eq(labels).float().mean().item())
-            payload.update({f"train/{key}": value for key, value in diagnostics.items()})
+            payload.update(diagnostics)
+            payload.update({f"train/{key}": value for key, value in diagnostics.items() if "/" not in key})
             append_jsonl(metrics_path(run_dir), payload)
             log_wandb(payload)
             print(
@@ -891,14 +913,31 @@ def train_one_epoch(
                 "global_step": global_step,
                 "epoch": epoch,
                 "val_loss": validation["loss"],
+                "eval/global_step": global_step,
+                "eval/epoch": epoch,
+                "eval/loss": validation["loss"],
+                **optimizer_log_metadata(
+                    args,
+                    scheduled_learning_rate(args.lr, global_step, total_training_steps, args.warmup_ratio),
+                ),
             }
             if task_type == "causal_lm":
+                if validation["loss"] < float(best_state["loss"]):
+                    best_state["loss"] = validation["loss"]
+                    best_state["epoch"] = epoch
                 val_payload["validation/perplexity"] = validation["perplexity"]
                 val_payload["validation/tokens"] = validation["tokens"]
             else:
+                best_accuracy = best_state["accuracy"]
+                if best_accuracy is None or validation["accuracy"] > float(best_accuracy):
+                    best_state["accuracy"] = validation["accuracy"]
+                    best_state["loss"] = validation["loss"]
+                    best_state["epoch"] = epoch
                 val_payload["validation/accuracy"] = validation["accuracy"]
                 val_payload["validation/examples"] = validation["examples"]
                 val_payload["val_accuracy"] = validation["accuracy"]
+                val_payload["eval/accuracy"] = validation["accuracy"]
+                val_payload["eval/best_accuracy"] = best_state["accuracy"]
             append_jsonl(metrics_path(run_dir), val_payload)
             log_wandb(val_payload)
             model.train()
@@ -918,6 +957,11 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
 
     if not args.overwrite and args.resume and summary_indicates_complete(run_dir, args.epochs):
         summary = json.loads(summary_path(run_dir).read_text(encoding="utf-8"))
+        run = maybe_init_wandb(args, run_name)
+        if run is not None:
+            uploaded = replay_wandb_history(run, metrics_path(run_dir))
+            print(f"Uploaded {uploaded} existing metric rows to W&B.", flush=True)
+            run.finish()
         print(f"Skipping completed run at {run_dir}", flush=True)
         return summary
     if not args.resume and not args.overwrite:
@@ -929,6 +973,8 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         for path in [metrics_path(run_dir), summary_path(run_dir), checkpoint_path(run_dir)]:
             if path.exists():
                 path.unlink()
+
+    run = maybe_init_wandb(args, run_name)
 
     set_global_seed(args.seed)
     model, data = load_model_and_data(args, device)
@@ -949,6 +995,7 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
         clipping_scope=args.clipping_scope,
         correct_bias=args.correct_bias,
     )
+    args.correct_bias = all(bool(group["correct_bias"]) for group in optimizer.param_groups)
     tracker = RunningDiagnostics()
     global_step = 0
     start_epoch = 1
@@ -988,6 +1035,10 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             "global_step": 0,
             "epoch": 0,
             "val_loss": initial_eval["loss"],
+            "eval/global_step": 0,
+            "eval/epoch": 0,
+            "eval/loss": initial_eval["loss"],
+            **optimizer_log_metadata(args, args.lr),
             **{
                 f"run/{key}": value
                 for key, value in vars(args).items()
@@ -1001,11 +1052,18 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             initial_payload["validation/accuracy"] = initial_eval["accuracy"]
             initial_payload["validation/examples"] = initial_eval["examples"]
             initial_payload["val_accuracy"] = initial_eval["accuracy"]
+            initial_payload["eval/accuracy"] = initial_eval["accuracy"]
+            initial_payload["eval/best_accuracy"] = initial_eval["accuracy"]
             best_validation_accuracy = initial_eval["accuracy"]
         append_jsonl(metrics_path(run_dir), initial_payload)
         best_validation_loss = initial_eval["loss"]
 
-    run = maybe_init_wandb(args, run_name)
+    best_state: dict[str, float | int | None] = {
+        "loss": best_validation_loss,
+        "accuracy": best_validation_accuracy,
+        "epoch": best_epoch,
+    }
+
     if run is not None and start_epoch == 1 and initial_payload is not None:
         log_wandb(initial_payload)
     elif run is not None and start_epoch > 1:
@@ -1028,7 +1086,13 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             device=device,
             total_training_steps=total_training_steps,
             params=params,
+            best_state=best_state,
         )
+        best_validation_loss = float(best_state["loss"])
+        best_validation_accuracy = (
+            None if best_state["accuracy"] is None else float(best_state["accuracy"])
+        )
+        best_epoch = int(best_state["epoch"])
         validation = evaluate(
             model,
             data.validation,
@@ -1046,6 +1110,13 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
                 best_validation_accuracy = validation["accuracy"]
                 best_validation_loss = validation["loss"]
                 best_epoch = epoch
+        best_state.update(
+            {
+                "loss": best_validation_loss,
+                "accuracy": best_validation_accuracy,
+                "epoch": best_epoch,
+            }
+        )
         payload = {
             "train/global_step": global_step,
             "validation/global_step": global_step,
@@ -1057,6 +1128,13 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             "global_step": global_step,
             "epoch": epoch,
             "val_loss": validation["loss"],
+            "eval/global_step": global_step,
+            "eval/epoch": epoch,
+            "eval/loss": validation["loss"],
+            **optimizer_log_metadata(
+                args,
+                scheduled_learning_rate(args.lr, global_step, total_training_steps, args.warmup_ratio),
+            ),
         }
         if data.task_type == "causal_lm":
             payload["validation/perplexity"] = validation["perplexity"]
@@ -1067,6 +1145,8 @@ def run_llm_finetune_experiment(args) -> dict[str, Any]:
             payload["validation/best_accuracy"] = best_validation_accuracy
             payload["validation/examples"] = validation["examples"]
             payload["val_accuracy"] = validation["accuracy"]
+            payload["eval/accuracy"] = validation["accuracy"]
+            payload["eval/best_accuracy"] = best_validation_accuracy
         append_jsonl(metrics_path(run_dir), payload)
         log_wandb(payload)
         if data.task_type == "causal_lm":

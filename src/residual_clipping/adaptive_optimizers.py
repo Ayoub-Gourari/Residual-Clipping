@@ -108,6 +108,19 @@ def _mean_float(values: Sequence[float]) -> float:
     return float(sum(values) / len(values))
 
 
+def _safe_cosine(left: Sequence[torch.Tensor], right: Sequence[torch.Tensor]) -> float:
+    left_norm = _safe_norm(left)
+    right_norm = _safe_norm(right)
+    if left_norm <= 0.0 or right_norm <= 0.0:
+        return 0.0
+    dot = sum(float((lhs.detach() * rhs.detach()).sum().item()) for lhs, rhs in zip(left, right))
+    return max(-1.0, min(1.0, dot / (left_norm * right_norm + _EPS_NORM)))
+
+
+def _relative_norm(value: float, reference: float) -> float:
+    return float(value) / (float(reference) + _EPS_NORM)
+
+
 def _normalize_param_groups(
     params: Iterable[torch.nn.Parameter] | Iterable[dict[str, Any]],
     defaults: dict[str, Any],
@@ -188,6 +201,8 @@ class AdaptiveAdamW:
         self.exp_avg = [torch.zeros_like(param) for param in self.params]
         self.exp_avg_sq = [torch.zeros_like(param) for param in self.params]
         self.exp_avg_bias_mass = [torch.zeros_like(param) for param in self.params]
+        self.grad_clipping_activation_count = 0
+        self.residual_clipping_activation_count = 0
 
     @property
     def mode(self) -> str:
@@ -210,6 +225,8 @@ class AdaptiveAdamW:
             "exp_avg": [value.detach().cpu() for value in self.exp_avg],
             "exp_avg_sq": [value.detach().cpu() for value in self.exp_avg_sq],
             "exp_avg_bias_mass": [value.detach().cpu() for value in self.exp_avg_bias_mass],
+            "grad_clipping_activation_count": self.grad_clipping_activation_count,
+            "residual_clipping_activation_count": self.residual_clipping_activation_count,
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
@@ -223,6 +240,8 @@ class AdaptiveAdamW:
             self.exp_avg_bias_mass = [
                 tensor.to(param.device) for tensor, param in zip(bias_mass_values, self.params)
             ]
+        self.grad_clipping_activation_count = int(state_dict.get("grad_clipping_activation_count", 0))
+        self.residual_clipping_activation_count = int(state_dict.get("residual_clipping_activation_count", 0))
         group_options = state_dict.get("param_groups")
         if group_options is not None and len(group_options) == len(self.param_groups):
             for group, options in zip(self.param_groups, group_options):
@@ -246,6 +265,109 @@ class AdaptiveAdamW:
             for param in group["params"]:
                 yield group, param, values[index], self.exp_avg[index], self.exp_avg_sq[index]
                 index += 1
+
+    def _first_moment_centers(self, *, next_step: int) -> list[torch.Tensor]:
+        if self.optimizer_name != RESIDUAL_CLIP_ADAMW_M or next_step == 1:
+            return [value.detach().clone() for value in self.exp_avg]
+
+        centers: list[torch.Tensor] = []
+        for group, indices in self._group_indices():
+            beta1 = float(group["beta1"])
+            bias_correction1_prev = max(1.0 - beta1 ** (next_step - 1), _EPS_NORM)
+            centers.extend(self.exp_avg[index].detach() / bias_correction1_prev for index in indices)
+        return centers
+
+    def _record_clipping_activations(
+        self,
+        *,
+        next_step: int,
+        grad_scale: float,
+        residual_scale: float,
+    ) -> tuple[float, float, float, float]:
+        tolerance = 1e-7
+        grad_activated = float(grad_scale < 1.0 - tolerance)
+        residual_activated = float(residual_scale < 1.0 - tolerance)
+        self.grad_clipping_activation_count += int(grad_activated)
+        self.residual_clipping_activation_count += int(residual_activated)
+        return (
+            grad_activated,
+            self.grad_clipping_activation_count / float(next_step),
+            residual_activated,
+            self.residual_clipping_activation_count / float(next_step),
+        )
+
+    def _canonical_diagnostics(
+        self,
+        *,
+        grads: Sequence[torch.Tensor],
+        centers: Sequence[torch.Tensor],
+        residuals: Sequence[torch.Tensor],
+        clipped_grads: Sequence[torch.Tensor],
+        pseudo_grads: Sequence[torch.Tensor],
+        m_hats: Sequence[torch.Tensor],
+        v_hats: Sequence[torch.Tensor],
+        sqrt_v_hats: Sequence[torch.Tensor],
+        m_hat_updates: Sequence[torch.Tensor],
+        updates: Sequence[torch.Tensor],
+        lr_scaled_updates: Sequence[torch.Tensor],
+        weight_decay_steps: Sequence[torch.Tensor],
+        total_steps: Sequence[torch.Tensor],
+        param_norm_before: float,
+        grad_scale: float,
+        residual_scale: float,
+        grad_activated: float,
+        grad_activation_rate: float,
+        residual_activated: float,
+        residual_activation_rate: float,
+        lr: float,
+    ) -> dict[str, float | str]:
+        grad_norm = _safe_norm(grads)
+        center_norm = _safe_norm(centers)
+        residual_norm = _safe_norm(residuals)
+        clipped_grad_norm = _safe_norm(clipped_grads)
+        pseudo_grad_norm = _safe_norm(pseudo_grads)
+        update_norm = _safe_norm(updates)
+        beta1_values = [float(group["beta1"]) for group in self.param_groups]
+        beta2_values = [float(group["beta2"]) for group in self.param_groups]
+        weight_decay_values = [float(group["weight_decay"]) for group in self.param_groups]
+        threshold = max(float(group["clip_threshold"]) for group in self.param_groups)
+        return {
+            "grad/norm": grad_norm,
+            "center/norm": center_norm,
+            "residual/norm": residual_norm,
+            "residual/relative_norm": _relative_norm(residual_norm, grad_norm),
+            "clipped_grad/norm": clipped_grad_norm,
+            "pseudo_grad/norm": pseudo_grad_norm,
+            "clipped_grad/relative_norm": _relative_norm(clipped_grad_norm, grad_norm),
+            "pseudo_grad/relative_norm": _relative_norm(pseudo_grad_norm, grad_norm),
+            "clipping/grad_activated": grad_activated,
+            "clipping/grad_activation_rate": grad_activation_rate,
+            "clipping/residual_activated": residual_activated,
+            "clipping/residual_activation_rate": residual_activation_rate,
+            "clipping/grad_scale": grad_scale,
+            "clipping/residual_scale": residual_scale,
+            "cosine/grad_center": _safe_cosine(grads, centers),
+            "cosine/grad_pseudo_grad": _safe_cosine(grads, pseudo_grads),
+            "cosine/center_pseudo_grad": _safe_cosine(centers, pseudo_grads),
+            "cosine/clipped_grad_pseudo_grad": _safe_cosine(clipped_grads, pseudo_grads),
+            "adam/m_norm": _safe_norm(self.exp_avg),
+            "adam/m_hat_norm": _safe_norm(m_hats),
+            "adam/v_norm": _safe_norm(self.exp_avg_sq),
+            "adam/v_hat_norm": _safe_norm(v_hats),
+            "adam/sqrt_v_hat_norm": _safe_norm(sqrt_v_hats),
+            "adam/m_hat_over_sqrt_v_hat_norm": _safe_norm(m_hat_updates),
+            "update/norm": update_norm,
+            "update/lr_scaled_norm": _safe_norm(lr_scaled_updates),
+            "update/relative_param_norm": _relative_norm(_safe_norm(lr_scaled_updates), param_norm_before),
+            "update/weight_decay_norm": _safe_norm(weight_decay_steps),
+            "update/total_step_norm": _safe_norm(total_steps),
+            "optimizer/name": self.optimizer_name,
+            "optimizer/lr": lr,
+            "optimizer/beta1": _mean_float(beta1_values),
+            "optimizer/beta2": _mean_float(beta2_values),
+            "optimizer/weight_decay": _mean_float(weight_decay_values),
+            "optimizer/clip_threshold": threshold,
+        }
 
     def _clip_values_with_scales(
         self,
@@ -364,17 +486,7 @@ class AdaptiveAdamW:
                 "metric_residual_global_norm": 0.0,
             }
 
-        if self.optimizer_name == RESIDUAL_CLIP_ADAMW_M and next_step >= 2:
-            centers: list[torch.Tensor] = []
-            for group, indices in self._group_indices():
-                beta1 = float(group["beta1"])
-                bias_correction1_prev = max(1.0 - beta1 ** (next_step - 1), _EPS_NORM)
-                centers.extend(
-                    self.exp_avg[index].detach() / bias_correction1_prev
-                    for index in indices
-                )
-        else:
-            centers = [value.detach().clone() for value in self.exp_avg]
+        centers = self._first_moment_centers(next_step=next_step)
         residuals = [grad - center for grad, center in zip(grads, centers)]
         residual_norm = _safe_norm(residuals)
 
@@ -555,12 +667,13 @@ class AdaptiveAdamW:
                 collect_diagnostics=collect_diagnostics,
             )
 
+        centers = self._first_moment_centers(next_step=next_step)
+        residuals = [grad - center for grad, center in zip(materialized_grads, centers)]
+        param_norm_before = _safe_norm(self.params) if collect_diagnostics else 0.0
         pseudo_grads, diagnostics = self._pseudo_gradients(materialized_grads, next_step=next_step)
         variable_alpha_residual = self.optimizer_name == "adamw_resclip_euclidean_vclip_varalpha"
         residual_scales: list[torch.Tensor] | None = None
         if variable_alpha_residual:
-            centers = [value.detach().clone() for value in self.exp_avg]
-            residuals = [grad - center for grad, center in zip(materialized_grads, centers)]
             clipped_residuals, _clipped_norm, scale, residual_scales = self._clip_values_with_scales(residuals)
             pseudo_grads = [center + residual for center, residual in zip(centers, clipped_residuals)]
             diagnostics.update(
@@ -583,7 +696,40 @@ class AdaptiveAdamW:
             v_scale = diagnostics["clipping_scale"]
         diagnostics["v_pseudo_grad_global_norm"] = _safe_norm(second_moment_grads)
         diagnostics["v_clipping_scale"] = v_scale
+        raw_gradient_clipped_modes = {
+            "adamw_clip",
+            "adamw_resclip_euclidean_vclip",
+            "adamw_resclip_euclidean_vclip_varalpha",
+            RESIDUAL_CLIP_ADAMW_M,
+        }
+        if self.optimizer_name in raw_gradient_clipped_modes:
+            clipped_grads = second_moment_grads
+            grad_scale = float(v_scale)
+        else:
+            clipped_grads, _clipped_grad_norm, grad_scale = self._clip_values(materialized_grads)
+        residual_scale = (
+            float(diagnostics["clipping_scale"])
+            if self.optimizer_name not in {"adamw_uncut", "adamw_clip"}
+            else 1.0
+        )
+        (
+            grad_activated,
+            grad_activation_rate,
+            residual_activated,
+            residual_activation_rate,
+        ) = self._record_clipping_activations(
+            next_step=next_step,
+            grad_scale=grad_scale,
+            residual_scale=residual_scale,
+        )
         updates: list[torch.Tensor] = []
+        m_hats: list[torch.Tensor] = []
+        v_hats: list[torch.Tensor] = []
+        sqrt_v_hats: list[torch.Tensor] = []
+        m_hat_updates: list[torch.Tensor] = []
+        lr_scaled_updates: list[torch.Tensor] = []
+        weight_decay_steps: list[torch.Tensor] = []
+        total_steps: list[torch.Tensor] = []
         effective_beta_values: list[float] = []
         bias_mass_values: list[float] = []
 
@@ -605,29 +751,49 @@ class AdaptiveAdamW:
                     exp_avg.add_((materialized_grads[index] - exp_avg) * alpha)
                     bias_mass.add_((1.0 - bias_mass) * alpha)
                     numerator = exp_avg / bias_mass.clamp_min(_EPS_NORM) if correct_bias else exp_avg
-                    effective_beta_values.append(_mean_tensor_value(1.0 - alpha))
+                    if collect_diagnostics:
+                        effective_beta_values.append(_mean_tensor_value(1.0 - alpha))
                 else:
                     exp_avg.mul_(beta1).add_(pseudo_grad, alpha=1.0 - beta1)
                     bias_mass.mul_(beta1).add_(1.0 - beta1)
+                    bias_correction1 = max(1.0 - beta1 ** next_step, _EPS_NORM)
                     if correct_bias:
-                        bias_correction1 = max(1.0 - beta1 ** next_step, _EPS_NORM)
                         numerator = exp_avg / bias_correction1
                     else:
                         numerator = exp_avg
-                    effective_beta_values.append(beta1)
-                bias_mass_values.append(_mean_tensor_value(bias_mass))
+                    if collect_diagnostics:
+                        effective_beta_values.append(beta1)
+                if collect_diagnostics:
+                    bias_mass_values.append(_mean_tensor_value(bias_mass))
+
+                bias_correction1 = max(1.0 - beta1 ** next_step, _EPS_NORM)
+                m_hat = exp_avg / bias_correction1
+                if collect_diagnostics:
+                    m_hats.append(m_hat.detach().clone())
 
                 second_moment_grad = second_moment_grads[index]
                 exp_avg_sq.mul_(beta2).addcmul_(second_moment_grad, second_moment_grad, value=1.0 - beta2)
 
+                bias_correction2 = max(1.0 - beta2 ** next_step, _EPS_NORM)
+                v_hat = exp_avg_sq / bias_correction2
+                sqrt_v_hat = v_hat.sqrt()
+                if collect_diagnostics:
+                    v_hats.append(v_hat.detach().clone())
+                    sqrt_v_hats.append(sqrt_v_hat.detach().clone())
+                    m_hat_updates.append((m_hat / sqrt_v_hat.add(eps)).detach().clone())
                 if correct_bias:
-                    bias_correction2 = max(1.0 - beta2 ** next_step, _EPS_NORM)
-                    denominator = (exp_avg_sq / bias_correction2).sqrt().add(eps)
+                    denominator = sqrt_v_hat.add(eps)
                 else:
                     denominator = exp_avg_sq.sqrt().add(eps)
 
                 update = numerator / denominator
-                updates.append(update.detach().clone())
+                if collect_diagnostics:
+                    updates.append(update.detach().clone())
+                    lr_scaled_update = update * group_lr
+                    weight_decay_step = param.detach() * (group_lr * weight_decay)
+                    lr_scaled_updates.append(lr_scaled_update.detach().clone())
+                    weight_decay_steps.append(weight_decay_step.detach().clone())
+                    total_steps.append((lr_scaled_update + weight_decay_step).detach().clone())
 
                 if weight_decay != 0.0:
                     param.mul_(1.0 - group_lr * weight_decay)
@@ -658,5 +824,30 @@ class AdaptiveAdamW:
                 "adam_update_norm": update_norm,
                 "grad_norm": diagnostics["grad_global_norm"],
             }
+        )
+        diagnostics.update(
+            self._canonical_diagnostics(
+                grads=materialized_grads,
+                centers=centers,
+                residuals=residuals,
+                clipped_grads=clipped_grads,
+                pseudo_grads=pseudo_grads,
+                m_hats=m_hats,
+                v_hats=v_hats,
+                sqrt_v_hats=sqrt_v_hats,
+                m_hat_updates=m_hat_updates,
+                updates=updates,
+                lr_scaled_updates=lr_scaled_updates,
+                weight_decay_steps=weight_decay_steps,
+                total_steps=total_steps,
+                param_norm_before=param_norm_before,
+                grad_scale=grad_scale,
+                residual_scale=residual_scale,
+                grad_activated=grad_activated,
+                grad_activation_rate=grad_activation_rate,
+                residual_activated=residual_activated,
+                residual_activation_rate=residual_activation_rate,
+                lr=lr,
+            )
         )
         return diagnostics
