@@ -1,6 +1,10 @@
 import torch
 
-from residual_clipping.adaptive_optimizers import ADAPTIVE_OPTIMIZER_NAMES, AdaptiveAdamW
+from residual_clipping.adaptive_optimizers import (
+    ADAPTIVE_OPTIMIZER_NAMES,
+    RESIDUAL_CLIP_ADAMW_M,
+    AdaptiveAdamW,
+)
 
 
 def test_adamw_first_step_matches_bias_corrected_update_with_decoupled_decay():
@@ -110,6 +114,32 @@ def test_resclip_vclip_uses_standard_clipped_gradient_for_second_moment():
     assert torch.allclose(optimizer.exp_avg_sq[0], torch.tensor([1.0]))
     assert diagnostics["pseudo_grad_global_norm"] > diagnostics["v_pseudo_grad_global_norm"]
     assert abs(diagnostics["v_pseudo_grad_global_norm"] - 1.0) < 1e-6
+
+
+def test_residual_clip_adamw_m_uses_bias_corrected_center_and_clipped_raw_second_moment():
+    param = torch.nn.Parameter(torch.tensor([0.0], dtype=torch.float32))
+    optimizer = AdaptiveAdamW(
+        [param],
+        optimizer_name=RESIDUAL_CLIP_ADAMW_M,
+        beta1=0.5,
+        beta2=0.0,
+        eps=1e-8,
+        weight_decay=0.0,
+        clip_threshold=1.0,
+        clipping_scope="local",
+        correct_bias=False,
+    )
+
+    optimizer.step([torch.tensor([4.0])], lr=0.0)
+    diagnostics = optimizer.step([torch.tensor([4.0])], lr=0.0)
+
+    # Step 2 uses c_2 = m_1 / (1 - beta1) = 1, hence pseudo-gradient 2.
+    assert torch.allclose(optimizer.exp_avg[0], torch.tensor([1.25]))
+    assert torch.allclose(optimizer.exp_avg_sq[0], torch.tensor([1.0]))
+    assert abs(diagnostics["pseudo_grad_global_norm"] - 2.0) < 1e-6
+    assert abs(diagnostics["v_pseudo_grad_global_norm"] - 1.0) < 1e-6
+    assert abs(diagnostics["adam_update_norm"] - (1.25 / 0.75)) < 1e-6
+    assert diagnostics["correct_bias"] == 1.0
 
 
 def test_resclip_varalpha_uses_variable_first_moment_bias_mass():

@@ -35,6 +35,7 @@ optimizer_names:
   - adamw_resclip_euclidean_vclip_varalpha
   - adamw_resclip_metric
   - adamw_resclip_metric_vclip
+  - ResidualClipAdamW-M
 clip_thresholds:
   - 2.0
 seed_start: 123

@@ -10,6 +10,9 @@ import torch
 from .clipping import tensor_list_global_norm
 
 
+RESIDUAL_CLIP_ADAMW_M = "ResidualClipAdamW-M"
+
+
 ADAPTIVE_OPTIMIZER_NAMES = (
     "adamw_uncut",
     "adamw_clip",
@@ -18,6 +21,7 @@ ADAPTIVE_OPTIMIZER_NAMES = (
     "adamw_resclip_euclidean_vclip_varalpha",
     "adamw_resclip_metric",
     "adamw_resclip_metric_vclip",
+    RESIDUAL_CLIP_ADAMW_M,
 )
 ADAPTIVE_OPTIMIZER_MODES = ADAPTIVE_OPTIMIZER_NAMES
 CLIPPING_SCOPES = ("global", "local", "layerwise", "elementwise")
@@ -179,6 +183,7 @@ class AdaptiveAdamW:
         self.param_groups = _normalize_param_groups(params, defaults)
         self.params = [param for group in self.param_groups for param in group["params"]]
         self.optimizer_name = str(name)
+        self._enforce_algorithm_options()
         self.step_count = 0
         self.exp_avg = [torch.zeros_like(param) for param in self.params]
         self.exp_avg_sq = [torch.zeros_like(param) for param in self.params]
@@ -187,6 +192,12 @@ class AdaptiveAdamW:
     @property
     def mode(self) -> str:
         return self.optimizer_name
+
+    def _enforce_algorithm_options(self) -> None:
+        if self.optimizer_name == RESIDUAL_CLIP_ADAMW_M:
+            # Bias corrections are part of this named algorithm, not an optional Adam setting.
+            for group in self.param_groups:
+                group["correct_bias"] = True
 
     def state_dict(self) -> dict[str, Any]:
         return {
@@ -217,6 +228,7 @@ class AdaptiveAdamW:
             for group, options in zip(self.param_groups, group_options):
                 for key, value in options.items():
                     group[key] = value
+        self._enforce_algorithm_options()
 
     def _group_indices(self) -> Iterable[tuple[dict[str, Any], list[int]]]:
         index = 0
@@ -352,7 +364,17 @@ class AdaptiveAdamW:
                 "metric_residual_global_norm": 0.0,
             }
 
-        centers = [value.detach().clone() for value in self.exp_avg]
+        if self.optimizer_name == RESIDUAL_CLIP_ADAMW_M and next_step >= 2:
+            centers: list[torch.Tensor] = []
+            for group, indices in self._group_indices():
+                beta1 = float(group["beta1"])
+                bias_correction1_prev = max(1.0 - beta1 ** (next_step - 1), _EPS_NORM)
+                centers.extend(
+                    self.exp_avg[index].detach() / bias_correction1_prev
+                    for index in indices
+                )
+        else:
+            centers = [value.detach().clone() for value in self.exp_avg]
         residuals = [grad - center for grad, center in zip(grads, centers)]
         residual_norm = _safe_norm(residuals)
 
@@ -360,6 +382,7 @@ class AdaptiveAdamW:
             "adamw_resclip_euclidean",
             "adamw_resclip_euclidean_vclip",
             "adamw_resclip_euclidean_vclip_varalpha",
+            RESIDUAL_CLIP_ADAMW_M,
         } or next_step == 1:
             clipped_residuals, _clipped_norm, scale = self._clip_values(residuals)
             pseudo = [center + residual for center, residual in zip(centers, clipped_residuals)]
@@ -549,7 +572,11 @@ class AdaptiveAdamW:
                 }
             )
 
-        if self.optimizer_name in {"adamw_resclip_euclidean_vclip", "adamw_resclip_euclidean_vclip_varalpha"}:
+        if self.optimizer_name in {
+            "adamw_resclip_euclidean_vclip",
+            "adamw_resclip_euclidean_vclip_varalpha",
+            RESIDUAL_CLIP_ADAMW_M,
+        }:
             second_moment_grads, _second_moment_norm, v_scale = self._clip_values(materialized_grads)
         else:
             second_moment_grads = pseudo_grads

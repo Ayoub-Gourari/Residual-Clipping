@@ -131,12 +131,16 @@ python scripts/run_registered_experiment.py --name wikitext2-lstm-bptt70-report
 
 ### ALBERT Base v2: RTE Fine-Tuning
 
-The ALBERT/RTE path compares exactly:
+The ALBERT/RTE optimizer sweep includes:
 
 - `adamw_uncut`
 - `adamw_clip`
 - `adamw_resclip_euclidean`
+- `adamw_resclip_euclidean_vclip`
+- `adamw_resclip_euclidean_vclip_varalpha`
 - `adamw_resclip_metric`
+- `adamw_resclip_metric_vclip`
+- `ResidualClipAdamW-M`
 
 It defaults to scalar-only logs, no checkpoints, no final model save, and no W&B model artifacts. Use external caches when storage is tight:
 
@@ -164,7 +168,7 @@ Smoke-test the optimizer implementation:
 python scripts/smoke_test_optimizers.py
 ```
 
-Run the four stage-1 RTE comparisons:
+Run the stage-1 RTE comparisons:
 
 ```bash
 python train.py --task rte --model_checkpoint albert-base-v2 --hf-cache-dir "$HF_HOME" --no-download --optimizer_name adamw_uncut --clip_threshold inf --lr 1e-5 --batch_size 8 --max_epochs 1 --seed 123 --save_checkpoints false --wandb_log_model false
